@@ -112,6 +112,8 @@
   const ENEMY_POINTS = 3;          // points for shooting one down
   const MAX_AMMO = 2;              // missiles you can carry
   const MISSILE_SPEED = 480;       // px/s
+  const MISSILE_TURN = 6;          // how fast a missile can turn toward its target, radians/s
+  const MISSILE_RANGE = 380;       // how far ahead the missile's sensor locks on, px
   const PICKUP_CHANCE = 0.4;       // chance a new gap holds a missile pickup
   const FLAP = -390;               // flappy mode: upward kick per tap, px/s
   const FLAPPY_GRAVITY = 1250;     // flappy mode: fall acceleration, px/s²
@@ -223,7 +225,7 @@
     if (state.fireCooldown > 0) return;
     state.ammo--;
     state.fireCooldown = 0.25;
-    state.missiles.push({ x: state.bird.x + 20, y: state.bird.y + 8 });
+    state.missiles.push({ x: state.bird.x + 20, y: state.bird.y + 8, vx: MISSILE_SPEED, vy: 0, target: null });
   }
 
   function explode(x, y, r) { state.explosions.push({ x, y, r, t: 0 }); }
@@ -322,20 +324,37 @@
     }
     state.enemies = state.enemies.filter(e => e.x > -60);
 
-    // Missiles fly forward until they hit a jet or rock, or leave the screen
+    // Missiles lock on to the nearest enemy jet ahead and steer toward it,
+    // until they hit a jet or rock, or leave the screen
     for (const m of state.missiles) {
-      m.x += MISSILE_SPEED * dt;
+      let target = null, nearest = MISSILE_RANGE;
+      for (const e of state.enemies) {
+        const d = Math.hypot(e.x - m.x, e.y - m.y);
+        if (e.x > m.x - 10 && d < nearest) { nearest = d; target = e; }
+      }
+      m.target = target;
+      if (target) {
+        const heading = Math.atan2(m.vy, m.vx);
+        let turn = Math.atan2(target.y - m.y, target.x - m.x) - heading;
+        turn = Math.atan2(Math.sin(turn), Math.cos(turn)); // shortest way round
+        const a = heading + Math.max(-MISSILE_TURN * dt, Math.min(MISSILE_TURN * dt, turn));
+        m.vx = Math.cos(a) * MISSILE_SPEED;
+        m.vy = Math.sin(a) * MISSILE_SPEED;
+      }
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+      const noseX = m.x + m.vx / MISSILE_SPEED * 10, noseY = m.y + m.vy / MISSILE_SPEED * 10;
       const e = state.enemies.find(e => Math.abs(e.x - m.x) < 28 && Math.abs(e.y - m.y) < 14);
       if (e) {
         e.dead = true; m.dead = true;
         explode(e.x, e.y, 26);
         state.score += ENEMY_POINTS;
         state.popups.push({ x: e.x, y: e.y - 24, t: 0, text: `+${ENEMY_POINTS}` });
-      } else if (m.x > W + 20) {
+      } else if (m.x > W + 20 || m.x < -20 || m.y < -20) {
         m.dead = true;
-      } else if (state.peaks.some(p => inRock(p, m.x + 10, m.y))) {
+      } else if (noseY >= GROUND || state.peaks.some(p => inRock(p, noseX, noseY))) {
         m.dead = true;
-        explode(m.x + 10, m.y, 12);
+        explode(noseX, Math.min(noseY, GROUND), 12);
       }
     }
     state.enemies = state.enemies.filter(e => !e.dead);
@@ -533,17 +552,34 @@
     ctx.restore();
   }
 
-  function drawMissile(x, y, lit) {
+  function drawMissile(x, y, lit, angle = 0) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
     if (lit) {
       ctx.fillStyle = '#ffb347';
-      ctx.beginPath(); ctx.ellipse(x - 13, y, 4 + Math.random() * 3, 2, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-13, 0, 4 + Math.random() * 3, 2, 0, 0, Math.PI * 2); ctx.fill();
     }
     ctx.fillStyle = '#5f687d';
-    ctx.fillRect(x - 9, y - 4, 3, 8);
+    ctx.fillRect(-9, -4, 3, 8);
     ctx.fillStyle = '#e6e9f0';
-    ctx.fillRect(x - 9, y - 2, 16, 4);
+    ctx.fillRect(-9, -2, 16, 4);
     ctx.fillStyle = '#d9473a';
-    ctx.beginPath(); ctx.moveTo(x + 7, y - 2); ctx.lineTo(x + 12, y); ctx.lineTo(x + 7, y + 2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(7, -2); ctx.lineTo(12, 0); ctx.lineTo(7, 2); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  // Red corner brackets around a jet a missile has locked on to
+  function drawLock(e) {
+    const s = 30 + Math.sin(state.t * 20) * 2, c = 9;
+    ctx.strokeStyle = '#ff4d4d';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const cx = e.x + sx * s, cy = e.y + sy * (s - 8);
+      ctx.moveTo(cx - sx * c, cy); ctx.lineTo(cx, cy); ctx.lineTo(cx, cy - sy * c);
+    }
+    ctx.stroke();
   }
 
   function drawPickup(k) {
@@ -682,7 +718,8 @@
     for (const e of state.enemies) {
       drawPlane(e.x, e.y, 0, true, ENEMY_COLORS, 0.8 + 0.2 * Math.sin(state.t * 50 + e.seed));
     }
-    for (const m of state.missiles) drawMissile(m.x, m.y, true);
+    for (const e of new Set(state.missiles.map(m => m.target).filter(e => e && !e.dead))) drawLock(e);
+    for (const m of state.missiles) drawMissile(m.x, m.y, true, Math.atan2(m.vy, m.vx));
     if (state.mode !== 'over' || state.t - state.overAt < 0.15) drawJet();
     for (const x of state.explosions) drawExplosion(x);
     drawHUD();

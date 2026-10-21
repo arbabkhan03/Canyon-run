@@ -1,6 +1,6 @@
 # Canyon Run
 
-A small browser game: fly a fighter jet through a sunset canyon, threading the gaps between rocky peaks and overhangs. Each gap you clear scores a point, or two while you boost. Enemy jets fly straight at you: dodge them or shoot them down for 3 points. You carry up to 2 missiles and reload by flying through missile pickups in the gaps.
+A small browser game: fly a fighter jet through a sunset canyon, threading the gaps between rocky peaks and overhangs. Each gap you clear scores a point, or two while you boost. Enemy jets fly straight at you: dodge them or shoot them down for 3 points. Missiles lock on to the nearest incoming jet and steer toward it. You carry up to 2 and reload by flying through missile pickups in the gaps.
 
 ## Play
 
