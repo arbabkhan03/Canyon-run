@@ -70,10 +70,10 @@
 </head>
 <body>
 
-<div id="stage" tabindex="0" role="application" aria-label="Canyon Run game. Hold the up arrow to climb, the down arrow to dive; the jet hovers otherwise.">
+<div id="stage" tabindex="0" role="application" aria-label="Canyon Run game. Hold the up arrow to climb, the down arrow to dive, the right arrow to boost; the jet hovers otherwise.">
   <canvas id="game"></canvas>
 </div>
-<p class="hint">Hold <kbd>↑</kbd> to climb · <kbd>↓</kbd> to dive · let go to hover · <kbd>P</kbd> pause<br>On touch: hold the top of the screen to climb, the bottom to dive</p>
+<p class="hint">Hold <kbd>↑</kbd> to climb · <kbd>↓</kbd> to dive · <kbd>→</kbd> to boost · let go to hover · <kbd>P</kbd> pause<br>On touch: hold the top to climb, lower down to dive, the Boost button to boost</p>
 
 <script>
 (() => {
@@ -86,6 +86,10 @@
   const TIP = 18;                  // half-width of a peak at its tip
   const SLOPE = 0.2;               // how fast a peak widens toward its base
   const SPACING = 210;             // px between peaks
+  const BOOST_MULT = 1.9;          // scroll speed while boosting
+  const BOOST_DRAIN = 0.5;         // meter used per second (2 s from full)
+  const BOOST_RECHARGE = 0.18;     // meter refilled per second when not boosting
+  const BOOST_MIN = 0.15;          // meter needed to start a boost
 
   const canvas = document.getElementById('game');
   const stage = document.getElementById('stage');
@@ -102,6 +106,9 @@
     score: 0,
     t: 0,
     groundX: 0,
+    dist: 0,           // distance scrolled, drives the background parallax
+    fuel: 1,           // boost meter, 0..1
+    boosting: false,
     flash: 0,
     newBest: false,
   };
@@ -133,11 +140,12 @@
   function reset() {
     state.bird.y = 300; state.bird.vy = 0; state.bird.angle = 0;
     state.score = 0; state.newBest = false;
+    state.fuel = 1; state.boosting = false;
     seedPeaks(W + 110);
     state.mode = 'ready';
   }
 
-  const input = { up: false, down: false };
+  const input = { up: false, down: false, boost: false };
   function press(dir) {
     if (state.mode === 'paused') state.mode = 'play';
     if (state.mode === 'over') {
@@ -147,10 +155,11 @@
     if (state.mode === 'ready') state.mode = 'play';
     input[dir] = true;
   }
-  function release() { input.up = false; input.down = false; }
+  function release() { input.up = false; input.down = false; input.boost = false; }
 
   function gameOver() {
     state.mode = 'over';
+    state.boosting = false;
     state.overAt = state.t;
     state.flash = 1;
     if (state.score > best) {
@@ -176,6 +185,7 @@
 
     if (state.mode === 'ready') {
       b.y = 300 + Math.sin(state.t * 3) * 8;
+      state.dist += SPEED * dt;
       state.groundX = (state.groundX - SPEED * dt) % 24;
       return;
     }
@@ -196,10 +206,15 @@
     b.y += b.vy * dt;
     b.angle = b.vy / 900;
 
-    state.groundX = (state.groundX - SPEED * dt) % 24;
+    // Boost: faster scrolling and double points; drains the meter, which refills otherwise
+    state.boosting = input.boost && state.fuel > 0 && (state.boosting || state.fuel > BOOST_MIN);
+    state.fuel = Math.max(0, Math.min(1, state.fuel + (state.boosting ? -BOOST_DRAIN : BOOST_RECHARGE) * dt));
+    const speed = SPEED * (state.boosting ? BOOST_MULT : 1);
+    state.dist += speed * dt;
+    state.groundX = (state.groundX - speed * dt) % 24;
     for (const p of state.peaks) {
-      p.x -= SPEED * dt;
-      if (!p.scored && p.x < b.x - 30) { p.scored = true; state.score++; }
+      p.x -= speed * dt;
+      if (!p.scored && p.x < b.x - 30) { p.scored = true; state.score += state.boosting ? 2 : 1; }
     }
     if (state.peaks[0].x < -140) {
       state.peaks.shift();
@@ -249,8 +264,7 @@
   }
   function tri(v) { const m = ((v % 2) + 2) % 2; return 1 - Math.abs(m - 1); }
   function ridge(par, base, amp, color, freq) {
-    const moving = state.mode === 'play' || state.mode === 'ready';
-    const off = moving && !reduceMotion ? state.t * SPEED * par : 0;
+    const off = reduceMotion ? 0 : state.dist * par;
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.moveTo(0, GROUND);
@@ -337,7 +351,7 @@
     ctx.rotate(b.angle);
     // afterburner: flickers, flares while climbing, out after a crash
     if (state.mode !== 'over') {
-      const flare = (input.up ? 1.6 : 1) * (0.8 + 0.2 * Math.sin(state.t * 50));
+      const flare = (state.boosting ? 2.6 : input.up ? 1.6 : 1) * (0.8 + 0.2 * Math.sin(state.t * 50));
       ctx.fillStyle = '#ff8a3a';
       ctx.beginPath(); ctx.ellipse(-28 - 6 * flare, 0, 10 * flare, 4.5, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#ffe28a';
@@ -390,9 +404,27 @@
     ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 3; ctx.stroke();
   }
 
+  // Boost button and meter, drawn on the canyon floor
+  const BOOST_BTN = { x: 196, y: 574, w: 148, h: 52 };
+  function drawBoost() {
+    const { x, y, w, h } = BOOST_BTN;
+    const ready = state.boosting || state.fuel > BOOST_MIN;
+    ctx.fillStyle = 'rgba(29,20,36,.75)';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 12); ctx.fill();
+    ctx.fillStyle = state.boosting ? '#ff8a3a' : ready ? '#ffc861' : '#8a6a5a';
+    ctx.beginPath(); ctx.roundRect(x + 4, y + 4, (w - 8) * state.fuel, h - 8, 9); ctx.fill();
+    ctx.strokeStyle = state.boosting ? '#ffe28a' : '#ffc861';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 12); ctx.stroke();
+    text('BOOST', x + w / 2, y + h / 2 + 1, 20);
+    text('→ or Shift', 24, 600, 14, '#f6d7b8', 'left', 'Nunito');
+  }
+
   function drawHUD() {
+    if (state.mode !== 'over') drawBoost();
     if (state.mode === 'play' || state.mode === 'paused') {
       text(String(state.score), W / 2, 70, 54);
+      if (state.boosting) text('2× points', W / 2, 112, 18, '#ffc861', 'center', 'Nunito');
     }
     if (state.mode === 'ready') {
       text('Canyon', W / 2, 150, 52, '#ffc861');
@@ -403,6 +435,7 @@
       ctx.globalAlpha = 1;
       if (best > 0) text(`Best ${best}`, W / 2, 440, 18, '#f6d7b8', 'center', 'Nunito');
       text('↑ climb · ↓ dive · let go to hover', W / 2, 475, 15, '#f6d7b8', 'center', 'Nunito');
+      text('→ boost for double points', W / 2, 500, 15, '#ffc861', 'center', 'Nunito');
     }
     if (state.mode === 'paused') {
       text('Paused', W / 2, 280, 40);
@@ -427,6 +460,16 @@
       drawSpire(p, p.top + GAP, GROUND + 10, SEGMENTS * 2 + 2);
     }
     drawGround();
+    if (state.boosting && !reduceMotion) {
+      // speed streaks
+      ctx.strokeStyle = 'rgba(255,244,230,.35)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 9; i++) {
+        const y = (i * 71 + 13) % (GROUND - 20);
+        const x = W + 40 - ((state.dist * 1.5 + i * 97) % (W + 80));
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 46, y); ctx.stroke();
+      }
+    }
     drawJet();
     drawHUD();
     if (state.flash > 0) {
@@ -448,13 +491,16 @@
   // ---------- Input ----------
   const UP_KEYS = ['ArrowUp', 'KeyW', 'Space'];
   const DOWN_KEYS = ['ArrowDown', 'KeyS'];
+  const BOOST_KEYS = ['ArrowRight', 'KeyD', 'ShiftLeft', 'ShiftRight'];
   stage.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     stage.focus();
     try { stage.setPointerCapture(e.pointerId); } catch (err) {}
-    // Hold the top of the screen to climb, the bottom to dive
+    // Hold the canyon floor to boost, the top of the screen to climb, lower down to dive
     const r = stage.getBoundingClientRect();
-    press(e.clientY - r.top > r.height * 0.6 ? 'down' : 'up');
+    const ly = (e.clientY - r.top) / r.height * H;
+    if (ly > GROUND) press('boost');
+    else press(ly > H * 0.6 ? 'down' : 'up');
   });
   stage.addEventListener('pointerup', release);
   stage.addEventListener('pointercancel', release);
@@ -462,10 +508,12 @@
   window.addEventListener('keyup', (e) => {
     if (UP_KEYS.includes(e.code)) input.up = false;
     if (DOWN_KEYS.includes(e.code)) input.down = false;
+    if (BOOST_KEYS.includes(e.code)) input.boost = false;
   });
   window.addEventListener('keydown', (e) => {
     if (UP_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('up'); }
     if (DOWN_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('down'); }
+    if (BOOST_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('boost'); }
     if (e.code === 'KeyP' || e.code === 'Escape') {
       if (state.mode === 'play') state.mode = 'paused';
       else if (state.mode === 'paused') state.mode = 'play';
