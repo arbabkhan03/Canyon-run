@@ -58,6 +58,19 @@
     margin: 0;
     text-align: center;
   }
+  /* Phones: the game fills the screen; the on-canvas buttons replace the keyboard hint */
+  @media (pointer: coarse) {
+    body { padding-block: 0; gap: 0; }
+    #stage {
+      height: auto;
+      width: min(100%, calc(100vh * 9 / 16));
+      width: min(100%, calc(100dvh * 9 / 16));
+      border-radius: 0;
+      box-shadow: none;
+    }
+    .hint { display: none; }
+    body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  }
   kbd {
     font-family: var(--font-body);
     font-weight: 800;
@@ -99,6 +112,13 @@
   const MAX_AMMO = 2;              // missiles you can carry
   const MISSILE_SPEED = 480;       // px/s
   const PICKUP_CHANCE = 0.4;       // chance a new gap holds a missile pickup
+  const FLAP = -390;               // flappy mode: upward kick per tap, px/s
+  const FLAPPY_GRAVITY = 1250;     // flappy mode: fall acceleration, px/s²
+
+  // Touch screens get flappy controls (tap to flap, the jet falls otherwise);
+  // keyboards get hover controls. #flappy or #hover on the link forces one.
+  const FLAPPY = location.hash === '#flappy' ||
+    (location.hash !== '#hover' && matchMedia('(pointer: coarse)').matches);
 
   const canvas = document.getElementById('game');
   const stage = document.getElementById('stage');
@@ -190,6 +210,12 @@
   }
   function release() { input.up = false; input.down = false; input.boost = false; }
 
+  function flap() {
+    press('up'); // starts, resumes or restarts the game
+    input.up = false;
+    if (state.mode === 'play') state.bird.vy = FLAP;
+  }
+
   function fire() {
     if (state.mode !== 'play') { press('up'); input.up = false; return; } // start, resume or restart
     if (state.ammo <= 0) { state.emptyFlash = 0.8; return; }
@@ -251,11 +277,18 @@
       return;
     }
 
-    // Hover: hold altitude unless climbing or diving, easing into the new speed
-    const target = input.up ? -CLIMB : input.down ? CLIMB : 0;
-    b.vy += (target - b.vy) * Math.min(1, dt * 8);
-    b.y += b.vy * dt;
-    b.angle = b.vy / 900;
+    if (FLAPPY) {
+      // Flappy: always falling, each tap kicks the jet up
+      b.vy = Math.min(b.vy + FLAPPY_GRAVITY * dt, 700);
+      b.y += b.vy * dt;
+      b.angle = Math.max(-0.4, Math.min(0.9, b.vy / 700));
+    } else {
+      // Hover: hold altitude unless climbing or diving, easing into the new speed
+      const target = input.up ? -CLIMB : input.down ? CLIMB : 0;
+      b.vy += (target - b.vy) * Math.min(1, dt * 8);
+      b.y += b.vy * dt;
+      b.angle = b.vy / 900;
+    }
 
     // Boost: faster scrolling and double points; drains the meter, which refills otherwise
     state.boosting = input.boost && state.fuel > 0 && (state.boosting || state.fuel > BOOST_MIN);
@@ -455,7 +488,7 @@
   function drawJet() {
     const b = state.bird;
     // afterburner flickers, flares while climbing or boosting, out after a crash
-    const flare = state.mode === 'over' ? 0 : (state.boosting ? 2.6 : input.up ? 1.6 : 1) * (0.8 + 0.2 * Math.sin(state.t * 50));
+    const flare = state.mode === 'over' ? 0 : (state.boosting ? 2.6 : input.up || (FLAPPY && b.vy < -150) ? 1.6 : 1) * (0.8 + 0.2 * Math.sin(state.t * 50));
     drawPlane(b.x, b.y, b.angle, false, PLAYER_COLORS, flare);
   }
 
@@ -598,12 +631,18 @@
       text('Run', W / 2, 205, 52, '#ff8a3a');
       const pulse = reduceMotion ? 1 : 0.75 + 0.25 * Math.sin(state.t * 4);
       ctx.globalAlpha = pulse;
-      text('Press ↑ to take off', W / 2, 400, 22);
+      text(FLAPPY ? 'Tap to take off' : 'Press ↑ to take off', W / 2, 400, 22);
       ctx.globalAlpha = 1;
       if (best > 0) text(`Best ${best}`, W / 2, 440, 18, '#f6d7b8', 'center', 'Nunito');
-      text('↑ climb · ↓ dive · let go to hover', W / 2, 475, 15, '#f6d7b8', 'center', 'Nunito');
-      text('→ boost for double points', W / 2, 500, 15, '#ffc861', 'center', 'Nunito');
-      text('Space fires · fly through ◯ to reload', W / 2, 525, 15, '#f6d7b8', 'center', 'Nunito');
+      if (FLAPPY) {
+        text('Tap anywhere to flap up', W / 2, 475, 15, '#f6d7b8', 'center', 'Nunito');
+        text('Hold BOOST for double points', W / 2, 500, 15, '#ffc861', 'center', 'Nunito');
+        text('Tap FIRE to shoot · fly through ◯ to reload', W / 2, 525, 15, '#f6d7b8', 'center', 'Nunito');
+      } else {
+        text('↑ climb · ↓ dive · let go to hover', W / 2, 475, 15, '#f6d7b8', 'center', 'Nunito');
+        text('→ boost for double points', W / 2, 500, 15, '#ffc861', 'center', 'Nunito');
+        text('Space fires · fly through ◯ to reload', W / 2, 525, 15, '#f6d7b8', 'center', 'Nunito');
+      }
     }
     if (state.mode === 'paused') {
       text('Paused', W / 2, 280, 40);
@@ -617,7 +656,7 @@
       text(String(state.score), W / 2 - 64, 318, 40);
       text(String(best), W / 2 + 64, 318, 40, '#ffc861');
       if (state.newBest) text('New best!', W / 2, 362, 18, '#ffc861');
-      if (state.t - state.overAt > 0.5) text('Press ↑ to fly again', W / 2, 440, 20);
+      if (state.t - state.overAt > 0.5) text(FLAPPY ? 'Tap to fly again' : 'Press ↑ to fly again', W / 2, 440, 20);
     }
   }
 
@@ -667,28 +706,43 @@
   const FIRE_KEYS = ['Space', 'KeyF', 'Enter'];
   const DOWN_KEYS = ['ArrowDown', 'KeyS'];
   const BOOST_KEYS = ['ArrowRight', 'KeyD', 'ShiftLeft', 'ShiftRight'];
+  // Each finger remembers what it is holding, so a thumb can keep Boost held while the other taps
+  const held = new Map();
   stage.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     stage.focus();
     try { stage.setPointerCapture(e.pointerId); } catch (err) {}
-    // Canyon floor: Fire on the left, Boost on the right. Above it: top half climbs, lower down dives.
+    // Canyon floor: Fire on the left, Boost on the right.
+    // Above it: flappy mode flaps; hover mode climbs in the top part and dives lower down.
     const r = stage.getBoundingClientRect();
     const ly = (e.clientY - r.top) / r.height * H;
     const lx = (e.clientX - r.left) / r.width * W;
-    if (ly > GROUND) { if (lx < W / 2) fire(); else press('boost'); }
-    else press(ly > H * 0.6 ? 'down' : 'up');
+    if (ly > GROUND) {
+      if (lx < W / 2) fire();
+      else { press('boost'); held.set(e.pointerId, 'boost'); }
+    } else if (FLAPPY) {
+      flap();
+    } else {
+      const dir = ly > H * 0.6 ? 'down' : 'up';
+      press(dir);
+      held.set(e.pointerId, dir);
+    }
   });
-  stage.addEventListener('pointerup', release);
-  stage.addEventListener('pointercancel', release);
-  window.addEventListener('blur', release);
+  const lift = (e) => {
+    const action = held.get(e.pointerId);
+    if (action) { input[action] = false; held.delete(e.pointerId); }
+  };
+  stage.addEventListener('pointerup', lift);
+  stage.addEventListener('pointercancel', lift);
+  window.addEventListener('blur', () => { release(); held.clear(); });
   window.addEventListener('keyup', (e) => {
     if (UP_KEYS.includes(e.code)) input.up = false;
     if (DOWN_KEYS.includes(e.code)) input.down = false;
     if (BOOST_KEYS.includes(e.code)) input.boost = false;
   });
   window.addEventListener('keydown', (e) => {
-    if (UP_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('up'); }
-    if (DOWN_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('down'); }
+    if (UP_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) FLAPPY ? flap() : press('up'); }
+    if (DOWN_KEYS.includes(e.code) && !FLAPPY) { e.preventDefault(); if (!e.repeat) press('down'); }
     if (BOOST_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('boost'); }
     if (FIRE_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) fire(); }
     if (e.code === 'KeyP' || e.code === 'Escape') {

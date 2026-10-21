@@ -18,3 +18,9 @@ Open `index.html` in any modern browser. There is nothing to install or build.
 | Pause | P or Esc | — |
 
 Your best score is saved in your browser.
+
+## On phones
+
+Touch screens get Flappy Bird-style controls: tap anywhere to flap up, and the jet falls when you stop. The **FIRE** and **BOOST** buttons sit on the canyon floor, and you can hold Boost with one thumb while tapping with the other.
+
+To try the phone controls on a computer, add `#flappy` to the link (Space still fires, ↑ flaps). `#hover` forces the computer controls on a phone.
