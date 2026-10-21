@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body { margin: 0; } [hidden] { display: none !important; }</style>
+<title>Canyon Run</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Nunito:wght@600;800&display=swap">
+<style>
+  /* Layout: one centered portrait game stage, HUD drawn on canvas, controls hint below. Single sunset-canyon look by choice. */
+  :root {
+    --sky-top: #1d2a4d;
+    --sky-low: #f6b65b;
+    --ink: #fff4e6;
+    --ink-soft: #f6d7b8;
+    --accent: #ffc861;
+    --stage-edge: #140f1f;
+    --frame: #3a2a40;
+    --font-display: "Bagel Fat One", "Arial Rounded MT Bold", system-ui, sans-serif;
+    --font-body: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--stage-edge);
+    color: var(--ink);
+    font-family: var(--font-body);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 12px;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+  #stage {
+    position: relative;
+    height: min(calc(100% - 60px), 720px);
+    aspect-ratio: 9 / 16;
+    max-width: 100%;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 0 0 3px var(--frame), 0 20px 60px rgba(0,0,0,.5);
+    touch-action: none;
+    cursor: pointer;
+  }
+  #game { width: 100%; height: 100%; display: block; }
+  #stage:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+  .hint {
+    font-size: 13px;
+    color: var(--ink-soft);
+    letter-spacing: .04em;
+    margin: 0;
+    text-align: center;
+  }
+  kbd {
+    font-family: var(--font-body);
+    font-weight: 800;
+    background: var(--frame);
+    border-radius: 5px;
+    padding: 1px 6px;
+    color: var(--ink);
+  }
+</style>
+</head>
+<body>
+
+<div id="stage" tabindex="0" role="application" aria-label="Canyon Run game. Hold the up arrow to climb, the down arrow to dive; the jet hovers otherwise.">
+  <canvas id="game"></canvas>
+</div>
+<p class="hint">Hold <kbd>↑</kbd> to climb · <kbd>↓</kbd> to dive · let go to hover · <kbd>P</kbd> pause<br>On touch: hold the top of the screen to climb, the bottom to dive</p>
+
+<script>
+(() => {
+  const W = 360, H = 640;          // logical playfield
+  const GROUND = 560;              // y of the canyon floor
+  const GRAVITY = 1500;            // px/s², only after a crash
+  const CLIMB = 260;               // max climb/dive speed px/s; jet hovers level otherwise
+  const SPEED = 150;               // scroll px/s
+  const GAP = 160;                 // opening between the peak and the overhang
+  const TIP = 18;                  // half-width of a peak at its tip
+  const SLOPE = 0.2;               // how fast a peak widens toward its base
+  const SPACING = 210;             // px between peaks
+
+  const canvas = document.getElementById('game');
+  const stage = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let best = 0;
+  try { best = Number(localStorage.getItem('canyon-run-best')) || 0; } catch (e) {}
+
+  const state = {
+    mode: 'ready',     // ready | play | over | paused
+    bird: { x: 100, y: 300, vy: 0, r: 15, angle: 0 },
+    peaks: [],
+    score: 0,
+    t: 0,
+    groundX: 0,
+    flash: 0,
+    newBest: false,
+  };
+
+  function resize() {
+    const r = stage.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.width = Math.round(r.width * dpr);
+    canvas.height = Math.round(r.height * dpr);
+    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+  }
+  new ResizeObserver(resize).observe(stage);
+  resize();
+
+  // A peak pair: a mountain rising from the floor and a rock overhang from above.
+  // x is the centre line; jag holds the rough edge offsets so each one looks different.
+  const SEGMENTS = 10;
+  function addPeak(x) {
+    const minTop = 70, maxTop = GROUND - GAP - 70;
+    const top = minTop + Math.random() * (maxTop - minTop);
+    const jag = Array.from({ length: SEGMENTS * 4 + 4 }, () => (Math.random() * 2 - 1) * 6);
+    state.peaks.push({ x, top, jag, scored: false });
+  }
+  function seedPeaks(fromX) {
+    state.peaks = [];
+    for (let i = 0; i < 4; i++) addPeak(fromX + i * SPACING);
+  }
+
+  function reset() {
+    state.bird.y = 300; state.bird.vy = 0; state.bird.angle = 0;
+    state.score = 0; state.newBest = false;
+    seedPeaks(W + 110);
+    state.mode = 'ready';
+  }
+
+  const input = { up: false, down: false };
+  function press(dir) {
+    if (state.mode === 'paused') state.mode = 'play';
+    if (state.mode === 'over') {
+      if (state.t - state.overAt < 0.5) return; // avoid instant restart
+      reset();
+    }
+    if (state.mode === 'ready') state.mode = 'play';
+    input[dir] = true;
+  }
+  function release() { input.up = false; input.down = false; }
+
+  function gameOver() {
+    state.mode = 'over';
+    state.overAt = state.t;
+    state.flash = 1;
+    if (state.score > best) {
+      best = state.score; state.newBest = true;
+      try { localStorage.setItem('canyon-run-best', String(best)); } catch (e) {}
+    }
+  }
+
+  // Is a point inside the rock of this peak pair? Slightly forgiving at the edges.
+  function inRock(p, px, py) {
+    const bottomTip = p.top + GAP;
+    if (py >= bottomTip && Math.abs(px - p.x) < TIP + (py - bottomTip) * SLOPE - 3) return true;
+    if (py <= p.top && Math.abs(px - p.x) < TIP + (p.top - py) * SLOPE - 3) return true;
+    return false;
+  }
+  // Points around the jet's outline, relative to its centre
+  const JET_POINTS = [[28, 1], [16, -6], [16, 6], [-24, -6], [-24, 6], [8, -9], [0, 7]];
+
+  function update(dt) {
+    state.t += dt;
+    state.flash = Math.max(0, state.flash - dt * 3);
+    const b = state.bird;
+
+    if (state.mode === 'ready') {
+      b.y = 300 + Math.sin(state.t * 3) * 8;
+      state.groundX = (state.groundX - SPEED * dt) % 24;
+      return;
+    }
+    if (state.mode === 'paused') return;
+
+    if (state.mode === 'over') {
+      // only a crashed jet falls
+      b.vy += GRAVITY * dt;
+      b.y += b.vy * dt;
+      b.angle = Math.min(1.3, b.angle + dt * 3);
+      if (b.y > GROUND - b.r) { b.y = GROUND - b.r; b.vy = 0; }
+      return;
+    }
+
+    // Hover: hold altitude unless climbing or diving, easing into the new speed
+    const target = input.up ? -CLIMB : input.down ? CLIMB : 0;
+    b.vy += (target - b.vy) * Math.min(1, dt * 8);
+    b.y += b.vy * dt;
+    b.angle = b.vy / 900;
+
+    state.groundX = (state.groundX - SPEED * dt) % 24;
+    for (const p of state.peaks) {
+      p.x -= SPEED * dt;
+      if (!p.scored && p.x < b.x - 30) { p.scored = true; state.score++; }
+    }
+    if (state.peaks[0].x < -140) {
+      state.peaks.shift();
+      addPeak(state.peaks[state.peaks.length - 1].x + SPACING);
+    }
+
+    // Collisions
+    if (b.y + 7 >= GROUND) { b.y = GROUND - 7; gameOver(); return; }
+    if (b.y - b.r < 4) { b.y = 4 + b.r; b.vy = 0; }
+    for (const p of state.peaks) {
+      if (Math.abs(p.x - b.x) > 160) continue;
+      for (const [dx, dy] of JET_POINTS) {
+        if (inRock(p, b.x + dx, b.y + dy)) { gameOver(); return; }
+      }
+    }
+  }
+
+  // ---------- Drawing ----------
+  function drawSky() {
+    const g = ctx.createLinearGradient(0, 0, 0, GROUND);
+    g.addColorStop(0, '#1d2a4d');
+    g.addColorStop(0.5, '#8a3f4f');
+    g.addColorStop(0.8, '#e0703f');
+    g.addColorStop(1, '#f6b65b');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, GROUND);
+
+    // Low sun with a soft glow
+    const sx = 250, sy = 395;
+    const glow = ctx.createRadialGradient(sx, sy, 20, sx, sy, 150);
+    glow.addColorStop(0, 'rgba(255,214,140,.55)');
+    glow.addColorStop(1, 'rgba(255,214,140,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 200, W, GROUND - 200);
+    ctx.fillStyle = '#ffe2a3';
+    ctx.beginPath(); ctx.arc(sx, sy, 42, 0, Math.PI * 2); ctx.fill();
+
+    // A distant contrail
+    const cx = ((state.t * 12) % (W + 200)) - 100;
+    ctx.strokeStyle = 'rgba(255,244,230,.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx - 90, 120); ctx.lineTo(cx, 96); ctx.stroke();
+
+    // Two jagged ridge layers with parallax
+    ridge(0.12, 450, 70, '#8a4a5a', 0.013);
+    ridge(0.3, 500, 50, '#5a3048', 0.021);
+  }
+  function tri(v) { const m = ((v % 2) + 2) % 2; return 1 - Math.abs(m - 1); }
+  function ridge(par, base, amp, color, freq) {
+    const moving = state.mode === 'play' || state.mode === 'ready';
+    const off = moving && !reduceMotion ? state.t * SPEED * par : 0;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND);
+    for (let x = 0; x <= W; x += 6) {
+      const u = x + off;
+      const y = base - tri(u * freq) * amp - tri(u * freq * 2.7 + 0.3) * amp * 0.35;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, GROUND);
+    ctx.fill();
+  }
+
+  // One rock spire. tipY is where it points into the gap; endY is the floor or sky edge.
+  function drawSpire(p, tipY, endY, jagOffset) {
+    const dir = endY > tipY ? 1 : -1;
+    const len = Math.abs(endY - tipY);
+    const left = [], right = [];
+    for (let i = 0; i <= SEGMENTS; i++) {
+      const t = i / SEGMENTS;
+      const y = tipY + dir * t * len;
+      const hw = TIP + t * len * SLOPE;
+      const edge = i > 0 && i < SEGMENTS;
+      left.push([p.x - hw + (edge ? p.jag[jagOffset + i] : 0), y]);
+      right.push([p.x + hw + (edge ? p.jag[jagOffset + SEGMENTS + i] : 0), y]);
+    }
+
+    // silhouette
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(p.x, tipY - dir * 6); // pointed tip
+    for (const [x, y] of left) ctx.lineTo(x, y);
+    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = '#a5523a';
+    ctx.fill();
+    ctx.clip();
+
+    // shadowed right face
+    ctx.fillStyle = '#6e3326';
+    ctx.beginPath();
+    ctx.moveTo(p.x, tipY - dir * 6);
+    for (let i = 0; i < right.length; i++) {
+      const mid = p.x + (right[i][0] - p.x) * 0.1 + (i % 2 ? 3 : -3);
+      ctx.lineTo(mid, right[i][1]);
+    }
+    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0] + 8, right[i][1]);
+    ctx.closePath();
+    ctx.fill();
+
+    // sandstone strata
+    ctx.strokeStyle = 'rgba(255,200,140,.18)';
+    ctx.lineWidth = 3;
+    for (let k = 1; k < 8; k++) {
+      const y = tipY + dir * (k * 34 + 10);
+      ctx.beginPath(); ctx.moveTo(p.x - 200, y); ctx.lineTo(p.x + 200, y + dir * 4); ctx.stroke();
+    }
+
+    // sunlit left rim
+    ctx.strokeStyle = '#e08a55';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(p.x, tipY - dir * 6);
+    for (const [x, y] of left) ctx.lineTo(x + 1, y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawGround() {
+    ctx.fillStyle = '#5a2f22';
+    ctx.fillRect(0, GROUND, W, H - GROUND);
+    ctx.fillStyle = '#b8693d';
+    ctx.fillRect(0, GROUND, W, 10);
+    ctx.fillStyle = '#8a4a2c';
+    for (let x = state.groundX - 24; x < W + 24; x += 24) {
+      ctx.fillRect(x, GROUND + 18, 12, 3);
+      ctx.fillRect(x + 8, GROUND + 34, 8, 3);
+    }
+  }
+
+  function drawJet() {
+    const b = state.bird;
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.angle);
+    // afterburner: flickers, flares while climbing, out after a crash
+    if (state.mode !== 'over') {
+      const flare = (input.up ? 1.6 : 1) * (0.8 + 0.2 * Math.sin(state.t * 50));
+      ctx.fillStyle = '#ff8a3a';
+      ctx.beginPath(); ctx.ellipse(-28 - 6 * flare, 0, 10 * flare, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffe28a';
+      ctx.beginPath(); ctx.ellipse(-27 - 3 * flare, 0, 5 * flare, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    // vertical tail fin
+    ctx.fillStyle = '#5f687d';
+    ctx.beginPath(); ctx.moveTo(-24, -4); ctx.lineTo(-30, -18); ctx.lineTo(-22, -18); ctx.lineTo(-10, -4); ctx.closePath(); ctx.fill();
+    // fuselage with pointed nose
+    ctx.fillStyle = '#a3abbd';
+    ctx.beginPath();
+    ctx.moveTo(32, 1); ctx.lineTo(16, -6); ctx.lineTo(-24, -6); ctx.lineTo(-27, 0); ctx.lineTo(-24, 6); ctx.lineTo(16, 6);
+    ctx.closePath(); ctx.fill();
+    // belly shade
+    ctx.fillStyle = '#7d8599';
+    ctx.fillRect(-24, 2, 40, 4);
+    // nose tip
+    ctx.fillStyle = '#3b3550';
+    ctx.beginPath(); ctx.moveTo(32, 1); ctx.lineTo(24, -2.5); ctx.lineTo(24, 4); ctx.closePath(); ctx.fill();
+    // canopy
+    ctx.fillStyle = '#7fd3f0';
+    ctx.beginPath(); ctx.ellipse(10, -6, 9, 4.5, 0, Math.PI, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.6)';
+    ctx.fillRect(6, -9, 5, 1.5);
+    // swept delta wing
+    ctx.fillStyle = '#6f7890';
+    ctx.beginPath(); ctx.moveTo(10, 2); ctx.lineTo(-14, 16); ctx.lineTo(-20, 16); ctx.lineTo(-16, 2); ctx.closePath(); ctx.fill();
+    // red stripe and roundel
+    ctx.fillStyle = '#d9473a';
+    ctx.fillRect(-20, -2, 6, 3);
+    ctx.beginPath(); ctx.arc(-6, 0, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function text(str, x, y, size, color = '#fff4e6', align = 'center', font = 'Bagel Fat One') {
+    ctx.font = `${size}px "${font}", "Arial Rounded MT Bold", sans-serif`;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = size / 6;
+    ctx.strokeStyle = '#1d1424';
+    ctx.strokeText(str, x, y);
+    ctx.fillStyle = color;
+    ctx.fillText(str, x, y);
+  }
+
+  function panel(x, y, w, h) {
+    ctx.fillStyle = 'rgba(29,20,36,.85)';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 16); ctx.fill();
+    ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 3; ctx.stroke();
+  }
+
+  function drawHUD() {
+    if (state.mode === 'play' || state.mode === 'paused') {
+      text(String(state.score), W / 2, 70, 54);
+    }
+    if (state.mode === 'ready') {
+      text('Canyon', W / 2, 150, 52, '#ffc861');
+      text('Run', W / 2, 205, 52, '#ff8a3a');
+      const pulse = reduceMotion ? 1 : 0.75 + 0.25 * Math.sin(state.t * 4);
+      ctx.globalAlpha = pulse;
+      text('Press ↑ to take off', W / 2, 400, 22);
+      ctx.globalAlpha = 1;
+      if (best > 0) text(`Best ${best}`, W / 2, 440, 18, '#f6d7b8', 'center', 'Nunito');
+      text('↑ climb · ↓ dive · let go to hover', W / 2, 475, 15, '#f6d7b8', 'center', 'Nunito');
+    }
+    if (state.mode === 'paused') {
+      text('Paused', W / 2, 280, 40);
+      text('Tap or P to resume', W / 2, 330, 18, '#f6d7b8', 'center', 'Nunito');
+    }
+    if (state.mode === 'over') {
+      panel(50, 190, W - 100, 210);
+      text('Game over', W / 2, 228, 34, '#ef6b3a');
+      text('Score', W / 2 - 64, 280, 16, '#f6d7b8', 'center', 'Nunito');
+      text('Best', W / 2 + 64, 280, 16, '#f6d7b8', 'center', 'Nunito');
+      text(String(state.score), W / 2 - 64, 318, 40);
+      text(String(best), W / 2 + 64, 318, 40, '#ffc861');
+      if (state.newBest) text('New best!', W / 2, 362, 18, '#ffc861');
+      if (state.t - state.overAt > 0.5) text('Press ↑ to fly again', W / 2, 440, 20);
+    }
+  }
+
+  function draw() {
+    drawSky();
+    for (const p of state.peaks) {
+      drawSpire(p, p.top, -10, 0);
+      drawSpire(p, p.top + GAP, GROUND + 10, SEGMENTS * 2 + 2);
+    }
+    drawGround();
+    drawJet();
+    drawHUD();
+    if (state.flash > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${state.flash * 0.6})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  // ---------- Loop ----------
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.033, (now - last) / 1000);
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- Input ----------
+  const UP_KEYS = ['ArrowUp', 'KeyW', 'Space'];
+  const DOWN_KEYS = ['ArrowDown', 'KeyS'];
+  stage.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    stage.focus();
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    // Hold the top of the screen to climb, the bottom to dive
+    const r = stage.getBoundingClientRect();
+    press(e.clientY - r.top > r.height * 0.6 ? 'down' : 'up');
+  });
+  stage.addEventListener('pointerup', release);
+  stage.addEventListener('pointercancel', release);
+  window.addEventListener('blur', release);
+  window.addEventListener('keyup', (e) => {
+    if (UP_KEYS.includes(e.code)) input.up = false;
+    if (DOWN_KEYS.includes(e.code)) input.down = false;
+  });
+  window.addEventListener('keydown', (e) => {
+    if (UP_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('up'); }
+    if (DOWN_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('down'); }
+    if (e.code === 'KeyP' || e.code === 'Escape') {
+      if (state.mode === 'play') state.mode = 'paused';
+      else if (state.mode === 'paused') state.mode = 'play';
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && state.mode === 'play') state.mode = 'paused';
+  });
+
+  reset();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
