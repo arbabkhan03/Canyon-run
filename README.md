@@ -23,6 +23,6 @@ Open `index.html` in any modern browser, or play it at https://arbabkhan03.githu
 | Boost (2× points) | Hold → (or D / Shift) | Hold the Boost button |
 | Fire missile | Space (or F / Enter) | Tap the Fire button |
 | Pause | P or Esc | — |
-| Full screen | The ⛶ button, top right | The ⛶ button, top right |
+| Full screen | The ⛶ button, top right | Android: the ⛶ button. iPhone: Share → Add to Home Screen |
 
 Phones play in landscape, edge to edge under the notch; hold the phone upright and the game pauses and asks you to turn it. On iPhone, Safari keeps its own bars on screen, so for true full screen tap Share → **Add to Home Screen** and open Canyon Run from the home screen icon. To try the phone controls on a computer, add `#touch` to the link.
