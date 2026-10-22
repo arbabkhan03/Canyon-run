@@ -3,209 +3,342 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#140f1f">
 <style>body { margin: 0; } [hidden] { display: none !important; }</style>
 <title>Canyon Run</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Nunito:wght@600;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Nunito:wght@600;800&family=Press+Start+2P&display=swap">
 <style>
-  /* Layout: one centered portrait game stage, HUD drawn on canvas, controls hint below. Single sunset-canyon look by choice. */
+  /* Layout: full-screen landscape stage; HUD and buttons drawn on the canvas; HTML only for initials entry and the rotate prompt. Single sunset-canyon look by choice. */
   :root {
-    --sky-top: #1d2a4d;
-    --sky-low: #f6b65b;
     --ink: #fff4e6;
     --ink-soft: #f6d7b8;
     --accent: #ffc861;
+    --hot: #ff8a3a;
+    --panel: #1d1424;
     --stage-edge: #140f1f;
     --frame: #3a2a40;
     --font-display: "Bagel Fat One", "Arial Rounded MT Bold", system-ui, sans-serif;
     --font-body: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-arcade: "Press Start 2P", ui-monospace, "Courier New", monospace;
     color-scheme: dark;
   }
   html, body { height: 100%; }
   body {
+    margin: 0;
     background: var(--stage-edge);
     color: var(--ink);
     font-family: var(--font-body);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
-    padding-block: 12px;
-    box-sizing: border-box;
     overflow: hidden;
   }
   #stage {
-    position: relative;
-    height: min(calc(100% - 60px), 720px);
-    aspect-ratio: 9 / 16;
-    max-width: 100%;
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: 0 0 0 3px var(--frame), 0 20px 60px rgba(0,0,0,.5);
+    position: fixed;
+    inset: 0;
+    box-sizing: border-box;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  #frame { width: 100%; height: 100%; display: grid; place-items: center; }
+  #game { display: block; cursor: pointer; }
+  #game:focus { outline: none; }
+  #game:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+
+  /* Arcade initials entry, shown over the game-over screen */
+  #initials {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 22px 28px;
+    background: var(--panel);
+    border: 3px solid var(--accent);
+    border-radius: 16px;
+    box-shadow: 0 16px 50px rgba(0,0,0,.55);
+    font-family: var(--font-arcade);
+    text-align: center;
+    max-width: calc(100vw - 32px);
+    box-sizing: border-box;
+  }
+  #initials h2 { margin: 0; font-size: 16px; color: var(--accent); letter-spacing: .06em; }
+  #initials p { margin: 0; font-size: 11px; color: var(--ink-soft); line-height: 1.6; }
+  #initials label { font-size: 10px; color: var(--ink-soft); letter-spacing: .1em; }
+  #ini {
+    width: 5.2em;
+    font: 28px var(--font-arcade);
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: .25em;
+    padding: 10px 0 10px .25em;
+    background: var(--stage-edge);
+    color: var(--ink);
+    border: 2px solid var(--frame);
+    border-radius: 8px;
+  }
+  #ini:focus { outline: none; border-color: var(--accent); }
+  #initials button {
+    font: 13px var(--font-arcade);
+    padding: 12px 22px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--panel);
     cursor: pointer;
   }
-  #game { width: 100%; height: 100%; display: block; }
-  #stage:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
-  .hint {
-    font-size: 13px;
-    color: var(--ink-soft);
-    letter-spacing: .04em;
-    margin: 0;
+  #initials button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+
+  /* Phones held upright are asked to turn sideways */
+  #rotate {
+    position: fixed;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding-inline: max(16px, env(safe-area-inset-left, 0px));
+    background: var(--stage-edge);
     text-align: center;
   }
-  /* Phones: the game fills the screen; the on-canvas buttons replace the keyboard hint */
-  @media (pointer: coarse) {
-    body { padding-block: 0; gap: 0; }
-    #stage {
-      height: auto;
-      width: min(100%, calc(100vh * 9 / 16));
-      width: min(100%, calc(100dvh * 9 / 16));
-      border-radius: 0;
-      box-shadow: none;
-    }
-    .hint { display: none; }
-    #stage:focus-visible { outline: none; }
-    body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #rotate strong { font: 28px var(--font-display); color: var(--accent); }
+  #rotate span { color: var(--ink-soft); font-size: 15px; max-width: 26ch; }
+  #rotate svg { width: 72px; height: 72px; }
+  @media (pointer: coarse) and (orientation: portrait) {
+    #rotate { display: flex; }
   }
-  kbd {
-    font-family: var(--font-body);
-    font-weight: 800;
-    background: var(--frame);
-    border-radius: 5px;
-    padding: 1px 6px;
-    color: var(--ink);
+  @media (prefers-reduced-motion: no-preference) {
+    #rotate svg { animation: tip 2.4s ease-in-out infinite; }
+    @keyframes tip { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
   }
 </style>
 </head>
 <body>
 
-<div id="stage" tabindex="0" role="application" aria-label="Canyon Run game. Hold the up arrow to climb, the down arrow to dive, the right arrow to boost, space to fire a missile; the jet hovers otherwise.">
-  <canvas id="game"></canvas>
+<div id="stage">
+  <div id="frame">
+    <canvas id="game" tabindex="0" role="application" aria-label="Canyon Run game. Hold the up arrow to climb, the down arrow to dive, the right arrow to boost, space to fire a missile."></canvas>
+  </div>
 </div>
-<p class="hint">Hold <kbd>↑</kbd> climb · <kbd>↓</kbd> dive · <kbd>→</kbd> boost · <kbd>Space</kbd> fire · <kbd>P</kbd> pause<br>On touch: hold the top to climb, lower down to dive; Fire and Boost buttons on the ground</p>
+
+<form id="initials" hidden autocomplete="off">
+  <h2>NEW HIGH SCORE</h2>
+  <p id="ini-score"></p>
+  <label for="ini">ENTER YOUR INITIALS</label>
+  <input id="ini" maxlength="3" autocapitalize="characters" spellcheck="false" enterkeyhint="done">
+  <button type="submit">SAVE</button>
+</form>
+
+<div id="rotate" role="alert">
+  <svg viewBox="0 0 72 72" aria-hidden="true"><rect x="22" y="8" width="28" height="56" rx="6" fill="none" stroke="#ffc861" stroke-width="4"/><circle cx="36" cy="56" r="3" fill="#ffc861"/></svg>
+  <strong>Turn your phone sideways</strong>
+  <span>Canyon Run plays in landscape. Your run is paused until you rotate.</span>
+</div>
 
 <script>
 (() => {
-  const W = 360, H = 640;          // logical playfield
-  const GROUND = 560;              // y of the canyon floor
+  // ---------- Tuning ----------
+  const H = 540;                   // logical height; width follows the screen shape
+  let W = 960;
+  const GROUND = 470;              // y of the canyon floor
+  const PLAYER_X = 170;            // jet's fixed horizontal position
   const GRAVITY = 1500;            // px/s², only after a crash
-  const CLIMB = 320;               // max climb/dive speed px/s; jet hovers level otherwise
-  const SPEED = 205;               // scroll px/s
-  const GAP = 160;                 // opening between the peak and the overhang
-  const TIP = 18;                  // half-width of a peak at its tip
-  const SLOPE = 0.2;               // how fast a peak widens toward its base
-  const SPACING = 210;             // px between peaks
-  const BOOST_MULT = 1.9;          // scroll speed while boosting
+  const CLIMB = 370;               // hover mode: max climb/dive speed px/s
+  const SPEED = 270;               // scroll px/s
+  const GAP = 215;                 // opening between a peak and the overhang above it
+  const TIP = 18;                  // half-width of a rock spire at its point
+  const SLOPE = 0.2;               // how fast a spire widens away from its point
+  const SPACING = 280;             // px between peaks
+  const BOOST_MULT = 1.8;          // scroll speed while boosting
   const BOOST_DRAIN = 0.5;         // meter used per second (2 s from full)
   const BOOST_RECHARGE = 0.18;     // meter refilled per second when not boosting
   const BOOST_MIN = 0.15;          // meter needed to start a boost
-  const ENEMY_SPEED = 210;         // enemy jets' own speed toward the player, on top of the scroll
+  const ENEMY_SPEED = 230;         // enemy jets' own speed toward the player, on top of the scroll
   const ENEMY_FIRST = 2.5;         // seconds before the first enemy
-  const ENEMY_MIN_GAP = 1.6;       // seconds between enemies: at least this...
-  const ENEMY_RANDOM_GAP = 1.6;    // ...plus up to this much more
+  const ENEMY_MIN_GAP = 1.3;       // seconds between enemies: at least this...
+  const ENEMY_RANDOM_GAP = 1.4;    // ...plus up to this much more
   const ENEMY_AIM = 0.55;          // how hard enemies steer at the player once close (0..1)
   const ENEMY_POINTS = 3;          // points for shooting one down
   const MAX_AMMO = 2;              // missiles you can carry
-  const MISSILE_SPEED = 480;       // px/s
+  const MISSILE_SPEED = 560;       // px/s
   const MISSILE_TURN = 6;          // how fast a missile can turn toward its target, radians/s
-  const MISSILE_RANGE = 380;       // how far ahead the missile's sensor locks on, px
+  const MISSILE_RANGE = 480;       // how far ahead the missile's sensor locks on, px
+  const BLAST = 80;                // rock a missile knocks off a spire's top, px
   const PICKUP_CHANCE = 0.4;       // chance a new gap holds a missile pickup
-  const FLAP = -390;               // flappy mode: upward kick per tap, px/s
-  const FLAPPY_GRAVITY = 1250;     // flappy mode: fall acceleration, px/s²
+  const LASER_CHANCE = 0.12;       // chance a new gap holds a laser token instead
+  const LASER_TIME = 5;            // seconds the laser stays on
+  const LASER_CUT = 240;           // rock the laser melts per second, px
+  const FLAP = -410;               // flappy mode: upward kick per tap, px/s
+  const FLAPPY_GRAVITY = 1300;     // flappy mode: fall acceleration, px/s²
+  const MAX_SCORES = 10;           // rows on the personal scoreboard
 
   // Touch screens get flappy controls (tap to flap, the jet falls otherwise);
   // keyboards get hover controls. #flappy or #hover on the link forces one.
   const FLAPPY = location.hash === '#flappy' ||
     (location.hash !== '#hover' && matchMedia('(pointer: coarse)').matches);
+  const portraitPhone = matchMedia('(pointer: coarse) and (orientation: portrait)');
 
   const canvas = document.getElementById('game');
-  const stage = document.getElementById('stage');
+  const frameEl = document.getElementById('frame');
   const ctx = canvas.getContext('2d');
+  const form = document.getElementById('initials');
+  const iniInput = document.getElementById('ini');
+  const iniScore = document.getElementById('ini-score');
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const canFullscreen = !!(document.fullscreenEnabled && document.documentElement.requestFullscreen);
 
-  let best = 0;
-  try { best = Number(localStorage.getItem('canyon-run-best')) || 0; } catch (e) {}
+  // ---------- Personal scoreboard (this browser only) ----------
+  function load(key, fallback) {
+    try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch (e) { return fallback; }
+  }
+  function store(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  }
+  let scores = load('canyon-run-scores', []);
+  if (!Array.isArray(scores)) scores = [];
+  let best = Math.max(scores.length ? scores[0].s : 0, Number(load('canyon-run-best', 0)) || 0);
+  let lastInitials = load('canyon-run-initials', 'ACE');
+
+  function qualifies(s) {
+    return s > 0 && (scores.length < MAX_SCORES || s > scores[scores.length - 1].s);
+  }
+  function saveScore(name) {
+    const entry = { n: name, s: state.score, k: state.kills, d: new Date().toISOString().slice(0, 10) };
+    scores.push(entry);
+    scores.sort((a, b) => b.s - a.s);
+    scores = scores.slice(0, MAX_SCORES);
+    state.lastEntry = entry;
+    store('canyon-run-scores', scores);
+  }
 
   const state = {
     mode: 'ready',     // ready | play | over | paused
-    bird: { x: 100, y: 300, vy: 0, r: 15, angle: 0 },
+    bird: { x: PLAYER_X, y: 250, vy: 0, r: 15, angle: 0 },
     peaks: [],
+    enemies: [],
+    missiles: [],
+    pickups: [],
+    explosions: [],
+    debris: [],
+    popups: [],        // floating "+3" style labels
     score: 0,
+    kills: 0,
     t: 0,
     groundX: 0,
     dist: 0,           // distance scrolled, drives the background parallax
     fuel: 1,           // boost meter, 0..1
     boosting: false,
-    enemies: [],
-    missiles: [],
-    pickups: [],
-    explosions: [],
-    popups: [],        // floating "+3" style labels
     ammo: MAX_AMMO,
     fireCooldown: 0,
     enemyTimer: ENEMY_FIRST,
     emptyFlash: 0,     // "no missiles" warning timer
+    laser: 0,          // seconds of laser left
+    beamEnd: 0,
     flash: 0,
     newBest: false,
+    entering: false,   // typing initials
+    lastEntry: null,
   };
 
   function resize() {
-    const r = stage.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    canvas.width = Math.round(r.width * dpr);
-    canvas.height = Math.round(r.height * dpr);
+    const r = frameEl.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    W = Math.round(H * Math.min(2.2, Math.max(4 / 3, r.width / r.height)));
+    const scale = Math.min(r.width / W, r.height / H);
+    canvas.style.width = `${W * scale}px`;
+    canvas.style.height = `${H * scale}px`;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    canvas.width = Math.round(W * scale * dpr);
+    canvas.height = Math.round(H * scale * dpr);
     ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+    if (state.peaks.length) fillPeaks();
   }
-  new ResizeObserver(resize).observe(stage);
-  resize();
+  new ResizeObserver(resize).observe(frameEl);
 
+  // ---------- Canyon ----------
   // A peak pair: a mountain rising from the floor and a rock overhang from above.
-  // x is the centre line; jag holds the rough edge offsets so each one looks different.
+  // top/bot are where each spire currently ends (blasting moves them away from the gap);
+  // top0/bot0 are where they originally pointed, which sets their width.
   const SEGMENTS = 10;
   function addPeak(x) {
-    const minTop = 70, maxTop = GROUND - GAP - 70;
+    const minTop = 40, maxTop = GROUND - GAP - 40;
     const top = minTop + Math.random() * (maxTop - minTop);
     const jag = Array.from({ length: SEGMENTS * 4 + 4 }, () => (Math.random() * 2 - 1) * 6);
-    state.peaks.push({ x, top, jag, scored: false });
-    if (Math.random() < PICKUP_CHANCE) state.pickups.push({ x, y: top + GAP / 2 });
+    state.peaks.push({ x, top, bot: top + GAP, top0: top, bot0: top + GAP, jag, scored: false });
+    const roll = Math.random();
+    if (roll < PICKUP_CHANCE) state.pickups.push({ kind: 'missile', x, y: top + GAP / 2 });
+    else if (roll < PICKUP_CHANCE + LASER_CHANCE) state.pickups.push({ kind: 'laser', x, y: top + GAP / 2 });
+  }
+  function fillPeaks() {
+    const ps = state.peaks;
+    if (!ps.length) addPeak(W + 140);
+    while (ps[ps.length - 1].x < W + 280) addPeak(ps[ps.length - 1].x + SPACING);
   }
   // Height of the middle of the canyon gap at any x, blending between neighbouring peaks
   function gapCenterAt(x) {
     const ps = state.peaks;
-    if (x <= ps[0].x) return ps[0].top + GAP / 2;
+    const mid = (p) => (Math.max(p.top, 0) + Math.min(p.bot, GROUND)) / 2;
+    if (x <= ps[0].x) return mid(ps[0]);
     for (let i = 0; i < ps.length - 1; i++) {
       if (x < ps[i + 1].x) {
         const t = (x - ps[i].x) / (ps[i + 1].x - ps[i].x);
-        return ps[i].top + GAP / 2 + t * (ps[i + 1].top - ps[i].top);
+        return mid(ps[i]) + t * (mid(ps[i + 1]) - mid(ps[i]));
       }
     }
-    return ps[ps.length - 1].top + GAP / 2;
+    return mid(ps[ps.length - 1]);
   }
-  function seedPeaks(fromX) {
-    state.peaks = [];
-    for (let i = 0; i < 4; i++) addPeak(fromX + i * SPACING);
+  // Which spire of this pair, if any, is at this point? Slightly forgiving at the edges.
+  function rockAt(p, x, y) {
+    if (p.bot < GROUND && y >= p.bot && Math.abs(x - p.x) < TIP + (y - p.bot0) * SLOPE - 3) return 'bot';
+    if (p.top > 0 && y <= p.top && Math.abs(x - p.x) < TIP + (p.top0 - y) * SLOPE - 3) return 'top';
+    return null;
+  }
+  function rockHit(x, y) {
+    for (const p of state.peaks) {
+      if (Math.abs(p.x - x) > 140) continue;
+      const part = rockAt(p, x, y);
+      if (part) return { p, part };
+    }
+    return null;
+  }
+  // Knock rock off a spire's end, throwing debris
+  function blast(p, part, amount, x, y, pieces) {
+    if (part === 'top') p.top = Math.max(-40, p.top - amount);
+    else p.bot = Math.min(GROUND + 40, p.bot + amount);
+    for (let i = 0; i < pieces; i++) {
+      state.debris.push({
+        x, y,
+        vx: (Math.random() - 0.3) * 260,
+        vy: (part === 'top' ? -1 : 1) * Math.random() * 120 - 160,
+        t: 0,
+        s: 3 + Math.random() * 4,
+        c: Math.random() < 0.5 ? '#a5523a' : '#6e3326',
+      });
+    }
   }
 
   function reset() {
-    state.bird.y = 300; state.bird.vy = 0; state.bird.angle = 0;
-    state.score = 0; state.newBest = false;
-    state.fuel = 1; state.boosting = false;
-    state.enemies = []; state.missiles = []; state.pickups = []; state.explosions = []; state.popups = [];
+    state.bird.y = 250; state.bird.vy = 0; state.bird.angle = 0;
+    state.score = 0; state.kills = 0; state.newBest = false; state.lastEntry = null;
+    state.fuel = 1; state.boosting = false; state.laser = 0;
+    state.enemies = []; state.missiles = []; state.pickups = []; state.explosions = []; state.debris = []; state.popups = [];
     state.ammo = MAX_AMMO; state.fireCooldown = 0; state.enemyTimer = ENEMY_FIRST; state.emptyFlash = 0;
-    seedPeaks(W + 110);
+    state.peaks = [];
+    fillPeaks();
     state.mode = 'ready';
   }
 
+  // ---------- Actions ----------
   const input = { up: false, down: false, boost: false };
   function press(dir) {
     if (state.mode === 'paused') state.mode = 'play';
     if (state.mode === 'over') {
-      if (state.t - state.overAt < 0.5) return; // avoid instant restart
+      if (state.entering || state.t - state.overAt < 0.5) return; // avoid instant restart
       reset();
     }
     if (state.mode === 'ready') state.mode = 'play';
@@ -230,26 +363,65 @@
 
   function explode(x, y, r) { state.explosions.push({ x, y, r, t: 0 }); }
 
+  function kill(e) {
+    e.dead = true;
+    explode(e.x, e.y, 26);
+    state.score += ENEMY_POINTS;
+    state.kills++;
+    state.popups.push({ x: e.x, y: e.y - 24, t: 0, text: `+${ENEMY_POINTS}` });
+  }
+
   function gameOver() {
     state.mode = 'over';
     state.boosting = false;
+    state.laser = 0;
     explode(state.bird.x, state.bird.y, 30);
     state.overAt = state.t;
     state.flash = 1;
+    release();
     if (state.score > best) {
       best = state.score; state.newBest = true;
-      try { localStorage.setItem('canyon-run-best', String(best)); } catch (e) {}
+      store('canyon-run-best', best);
     }
+    if (qualifies(state.score)) openInitials();
   }
 
-  // Is a point inside the rock of this peak pair? Slightly forgiving at the edges.
-  function inRock(p, px, py) {
-    const bottomTip = p.top + GAP;
-    if (py >= bottomTip && Math.abs(px - p.x) < TIP + (py - bottomTip) * SLOPE - 3) return true;
-    if (py <= p.top && Math.abs(px - p.x) < TIP + (p.top - py) * SLOPE - 3) return true;
-    return false;
+  function openInitials() {
+    state.entering = true;
+    iniScore.textContent = `${state.score} POINTS · ${state.kills} JETS DOWN`;
+    iniInput.value = lastInitials;
+    form.hidden = false;
+    setTimeout(() => { iniInput.focus(); iniInput.select(); }, 350);
   }
-  // Points around the jet's outline, relative to its centre
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = iniInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3) || 'ACE';
+    lastInitials = name;
+    store('canyon-run-initials', name);
+    saveScore(name);
+    state.entering = false;
+    state.overAt = state.t;
+    form.hidden = true;
+    iniInput.blur();
+    canvas.focus();
+  });
+  iniInput.addEventListener('input', () => {
+    iniInput.value = iniInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
+  });
+
+  function toggleFullscreen() {
+    try {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen()
+          .then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'))
+          .catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    } catch (err) {}
+  }
+
+  // ---------- Update ----------
   const JET_POINTS = [[28, 1], [16, -6], [16, 6], [-24, -6], [-24, 6], [8, -9], [0, 7]];
 
   function update(dt) {
@@ -258,7 +430,7 @@
     const b = state.bird;
 
     if (state.mode === 'ready') {
-      b.y = 300 + Math.sin(state.t * 3) * 8;
+      b.y = 250 + Math.sin(state.t * 3) * 8;
       state.dist += SPEED * dt;
       state.groundX = (state.groundX - SPEED * dt) % 24;
       return;
@@ -267,6 +439,8 @@
 
     for (const x of state.explosions) x.t += dt;
     state.explosions = state.explosions.filter(x => x.t < 0.6);
+    for (const d of state.debris) { d.t += dt; d.vy += 900 * dt; d.x += d.vx * dt; d.y += d.vy * dt; }
+    state.debris = state.debris.filter(d => d.t < 1.2 && d.y < GROUND + 20);
     for (const p of state.popups) { p.t += dt; p.y -= 30 * dt; }
     state.popups = state.popups.filter(p => p.t < 0.9);
     state.emptyFlash = Math.max(0, state.emptyFlash - dt);
@@ -282,9 +456,9 @@
 
     if (FLAPPY) {
       // Flappy: always falling, each tap kicks the jet up
-      b.vy = Math.min(b.vy + FLAPPY_GRAVITY * dt, 700);
+      b.vy = Math.min(b.vy + FLAPPY_GRAVITY * dt, 720);
       b.y += b.vy * dt;
-      b.angle = Math.max(-0.4, Math.min(0.9, b.vy / 700));
+      b.angle = Math.max(-0.4, Math.min(0.9, b.vy / 720));
     } else {
       // Hover: hold altitude unless climbing or diving, easing into the new speed
       const target = input.up ? -CLIMB : input.down ? CLIMB : 0;
@@ -303,10 +477,8 @@
       p.x -= speed * dt;
       if (!p.scored && p.x < b.x - 30) { p.scored = true; state.score += state.boosting ? 2 : 1; }
     }
-    if (state.peaks[0].x < -140) {
-      state.peaks.shift();
-      addPeak(state.peaks[state.peaks.length - 1].x + SPACING);
-    }
+    while (state.peaks[0].x < -160) state.peaks.shift();
+    fillPeaks();
     state.fireCooldown = Math.max(0, state.fireCooldown - dt);
 
     // Incoming enemy jets fly toward the player, following the canyon gaps
@@ -318,19 +490,19 @@
     for (const e of state.enemies) {
       e.x -= (speed + ENEMY_SPEED) * dt;
       // follow the gap, then dive at the player when within range
-      const close = Math.max(0, Math.min(1, (260 - (e.x - b.x)) / 160));
+      const close = Math.max(0, Math.min(1, (300 - (e.x - b.x)) / 180));
       const target = gapCenterAt(e.x) + (b.y - gapCenterAt(e.x)) * ENEMY_AIM * close;
       e.y += (target - e.y) * Math.min(1, dt * 4);
     }
     state.enemies = state.enemies.filter(e => e.x > -60);
 
     // Missiles lock on to the nearest enemy jet ahead and steer toward it,
-    // until they hit a jet or rock, or leave the screen
+    // until they hit a jet or rock (blasting its top off), or leave the screen
     for (const m of state.missiles) {
       let target = null, nearest = MISSILE_RANGE;
       for (const e of state.enemies) {
         const d = Math.hypot(e.x - m.x, e.y - m.y);
-        if (e.x > m.x - 10 && d < nearest) { nearest = d; target = e; }
+        if (!e.dead && e.x > m.x - 10 && d < nearest) { nearest = d; target = e; }
       }
       m.target = target;
       if (target) {
@@ -344,26 +516,51 @@
       m.x += m.vx * dt;
       m.y += m.vy * dt;
       const noseX = m.x + m.vx / MISSILE_SPEED * 10, noseY = m.y + m.vy / MISSILE_SPEED * 10;
-      const e = state.enemies.find(e => Math.abs(e.x - m.x) < 28 && Math.abs(e.y - m.y) < 14);
+      const e = state.enemies.find(e => !e.dead && Math.abs(e.x - m.x) < 28 && Math.abs(e.y - m.y) < 14);
+      const rock = e ? null : rockHit(noseX, noseY);
       if (e) {
-        e.dead = true; m.dead = true;
-        explode(e.x, e.y, 26);
-        state.score += ENEMY_POINTS;
-        state.popups.push({ x: e.x, y: e.y - 24, t: 0, text: `+${ENEMY_POINTS}` });
+        m.dead = true;
+        kill(e);
+      } else if (rock) {
+        m.dead = true;
+        explode(noseX, noseY, 22);
+        blast(rock.p, rock.part, BLAST, noseX, noseY, 14);
+      } else if (noseY >= GROUND) {
+        m.dead = true;
+        explode(noseX, GROUND, 14);
       } else if (m.x > W + 20 || m.x < -20 || m.y < -20) {
         m.dead = true;
-      } else if (noseY >= GROUND || state.peaks.some(p => inRock(p, noseX, noseY))) {
-        m.dead = true;
-        explode(noseX, Math.min(noseY, GROUND), 12);
       }
     }
     state.enemies = state.enemies.filter(e => !e.dead);
     state.missiles = state.missiles.filter(m => !m.dead);
 
-    // Missile pickups drift with the canyon; flying through one reloads a missile
+    // Laser: a beam from the nose that downs jets and melts rock where it lands
+    if (state.laser > 0) {
+      state.laser = Math.max(0, state.laser - dt);
+      const y = b.y + 1;
+      let endX = W + 10, hit = null;
+      for (let x = b.x + 34; x < W + 10; x += 6) {
+        hit = rockHit(x, y);
+        if (hit) { endX = x; break; }
+      }
+      state.beamEnd = endX;
+      if (hit) blast(hit.p, hit.part, LASER_CUT * dt, endX, y, Math.random() < dt * 25 ? 1 : 0);
+      for (const e of state.enemies) {
+        if (e.x - 30 < endX && e.x + 30 > b.x && Math.abs(e.y - y) < 18) kill(e);
+      }
+      state.enemies = state.enemies.filter(e => !e.dead);
+    }
+
+    // Pickups drift with the canyon. Missile rings reload one missile; laser tokens switch the laser on.
     for (const k of state.pickups) {
       k.x -= speed * dt;
-      if (state.ammo < MAX_AMMO && Math.hypot(k.x - b.x, k.y - b.y) < 28) {
+      if (Math.hypot(k.x - b.x, k.y - b.y) >= 30) continue;
+      if (k.kind === 'laser') {
+        k.dead = true;
+        state.laser = LASER_TIME;
+        state.popups.push({ x: k.x, y: k.y - 22, t: 0, text: 'LASER!' });
+      } else if (state.ammo < MAX_AMMO) {
         k.dead = true;
         state.ammo++;
         state.popups.push({ x: k.x, y: k.y - 22, t: 0, text: '+1 missile' });
@@ -374,11 +571,8 @@
     // Collisions
     if (b.y + 7 >= GROUND) { b.y = GROUND - 7; gameOver(); return; }
     if (b.y - b.r < 4) { b.y = 4 + b.r; b.vy = 0; }
-    for (const p of state.peaks) {
-      if (Math.abs(p.x - b.x) > 160) continue;
-      for (const [dx, dy] of JET_POINTS) {
-        if (inRock(p, b.x + dx, b.y + dy)) { gameOver(); return; }
-      }
+    for (const [dx, dy] of JET_POINTS) {
+      if (rockHit(b.x + dx, b.y + dy)) { gameOver(); return; }
     }
     for (const e of state.enemies) {
       if (Math.abs(e.x - b.x) < 46 && Math.abs(e.y - b.y) < 14) {
@@ -401,24 +595,24 @@
     ctx.fillRect(0, 0, W, GROUND);
 
     // Low sun with a soft glow
-    const sx = 250, sy = 395;
-    const glow = ctx.createRadialGradient(sx, sy, 20, sx, sy, 150);
+    const sx = W * 0.72, sy = GROUND - 150;
+    const glow = ctx.createRadialGradient(sx, sy, 20, sx, sy, 190);
     glow.addColorStop(0, 'rgba(255,214,140,.55)');
     glow.addColorStop(1, 'rgba(255,214,140,0)');
     ctx.fillStyle = glow;
-    ctx.fillRect(0, 200, W, GROUND - 200);
+    ctx.fillRect(0, 100, W, GROUND - 100);
     ctx.fillStyle = '#ffe2a3';
-    ctx.beginPath(); ctx.arc(sx, sy, 42, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(sx, sy, 48, 0, Math.PI * 2); ctx.fill();
 
     // A distant contrail
-    const cx = ((state.t * 12) % (W + 200)) - 100;
+    const cx = ((state.t * 14) % (W + 300)) - 150;
     ctx.strokeStyle = 'rgba(255,244,230,.35)';
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(cx - 90, 120); ctx.lineTo(cx, 96); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - 110, 90); ctx.lineTo(cx, 64); ctx.stroke();
 
     // Two jagged ridge layers with parallax
-    ridge(0.12, 450, 70, '#8a4a5a', 0.013);
-    ridge(0.3, 500, 50, '#5a3048', 0.021);
+    ridge(0.12, GROUND - 70, 60, '#8a4a5a', 0.011);
+    ridge(0.3, GROUND - 30, 44, '#5a3048', 0.019);
   }
   function tri(v) { const m = ((v % 2) + 2) % 2; return 1 - Math.abs(m - 1); }
   function ridge(par, base, amp, color, freq) {
@@ -426,7 +620,7 @@
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.moveTo(0, GROUND);
-    for (let x = 0; x <= W; x += 6) {
+    for (let x = 0; x <= W + 6; x += 6) {
       const u = x + off;
       const y = base - tri(u * freq) * amp - tri(u * freq * 2.7 + 0.3) * amp * 0.35;
       ctx.lineTo(x, y);
@@ -435,27 +629,40 @@
     ctx.fill();
   }
 
-  // One rock spire. tipY is where it points into the gap; endY is the floor or sky edge.
-  function drawSpire(p, tipY, endY, jagOffset) {
-    const dir = endY > tipY ? 1 : -1;
-    const len = Math.abs(endY - tipY);
+  // One rock spire. tip0 is where it originally pointed; cut is where it ends now
+  // (the same until it gets blasted, then it has a broken flat top); endY is the floor or sky edge.
+  function drawSpire(p, tip0, cut, endY, jagOffset) {
+    const dir = endY > tip0 ? 1 : -1;
+    if ((endY - cut) * dir <= 0) return; // blasted away completely
+    const len = Math.abs(endY - cut);
+    const pointed = Math.abs(cut - tip0) < 1;
     const left = [], right = [];
     for (let i = 0; i <= SEGMENTS; i++) {
-      const t = i / SEGMENTS;
-      const y = tipY + dir * t * len;
-      const hw = TIP + t * len * SLOPE;
+      const y = cut + dir * (i / SEGMENTS) * len;
+      const hw = TIP + Math.abs(y - tip0) * SLOPE;
       const edge = i > 0 && i < SEGMENTS;
       left.push([p.x - hw + (edge ? p.jag[jagOffset + i] : 0), y]);
       right.push([p.x + hw + (edge ? p.jag[jagOffset + SEGMENTS + i] : 0), y]);
     }
+    const top = pointed ? [p.x, tip0 - dir * 6] : [p.x, cut];
 
-    // silhouette
+    function outline() {
+      ctx.beginPath();
+      if (pointed) ctx.moveTo(top[0], top[1]);
+      else {
+        // broken, rubbly end where it was blasted
+        ctx.moveTo(right[0][0], right[0][1]);
+        for (let k = 4; k >= 1; k--) {
+          ctx.lineTo(left[0][0] + (right[0][0] - left[0][0]) * k / 5, cut - dir * (k % 2 ? 4 : -3));
+        }
+      }
+      for (const [x, y] of left) ctx.lineTo(x, y);
+      for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
+      ctx.closePath();
+    }
+
     ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(p.x, tipY - dir * 6); // pointed tip
-    for (const [x, y] of left) ctx.lineTo(x, y);
-    for (let i = right.length - 1; i >= 0; i--) ctx.lineTo(right[i][0], right[i][1]);
-    ctx.closePath();
+    outline();
     ctx.fillStyle = '#a5523a';
     ctx.fill();
     ctx.clip();
@@ -463,7 +670,7 @@
     // shadowed right face
     ctx.fillStyle = '#6e3326';
     ctx.beginPath();
-    ctx.moveTo(p.x, tipY - dir * 6);
+    ctx.moveTo(top[0], top[1]);
     for (let i = 0; i < right.length; i++) {
       const mid = p.x + (right[i][0] - p.x) * 0.1 + (i % 2 ? 3 : -3);
       ctx.lineTo(mid, right[i][1]);
@@ -472,11 +679,11 @@
     ctx.closePath();
     ctx.fill();
 
-    // sandstone strata
+    // sandstone strata, fixed to the rock so they don't slide when it's blasted
     ctx.strokeStyle = 'rgba(255,200,140,.18)';
     ctx.lineWidth = 3;
-    for (let k = 1; k < 8; k++) {
-      const y = tipY + dir * (k * 34 + 10);
+    for (let k = 1; k < 14; k++) {
+      const y = tip0 + dir * (k * 34 + 10);
       ctx.beginPath(); ctx.moveTo(p.x - 200, y); ctx.lineTo(p.x + 200, y + dir * 4); ctx.stroke();
     }
 
@@ -484,9 +691,15 @@
     ctx.strokeStyle = '#e08a55';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(p.x, tipY - dir * 6);
+    ctx.moveTo(pointed ? top[0] : left[0][0], pointed ? top[1] : left[0][1]);
     for (const [x, y] of left) ctx.lineTo(x + 1, y);
     ctx.stroke();
+
+    // scorched edge where it was blasted
+    if (!pointed) {
+      ctx.fillStyle = 'rgba(40,18,14,.55)';
+      ctx.fillRect(p.x - 200, dir > 0 ? cut - 6 : cut - 4, 400, 10);
+    }
     ctx.restore();
   }
 
@@ -494,11 +707,11 @@
     ctx.fillStyle = '#5a2f22';
     ctx.fillRect(0, GROUND, W, H - GROUND);
     ctx.fillStyle = '#b8693d';
-    ctx.fillRect(0, GROUND, W, 10);
+    ctx.fillRect(0, GROUND, W, 8);
     ctx.fillStyle = '#8a4a2c';
     for (let x = state.groundX - 24; x < W + 24; x += 24) {
-      ctx.fillRect(x, GROUND + 18, 12, 3);
-      ctx.fillRect(x + 8, GROUND + 34, 8, 3);
+      ctx.fillRect(x, GROUND + 16, 12, 3);
+      ctx.fillRect(x + 8, GROUND + 32, 8, 3);
     }
   }
 
@@ -584,12 +797,42 @@
 
   function drawPickup(k) {
     const r = 15 + Math.sin(state.t * 5) * 1.5;
+    if (k.kind === 'laser') {
+      // cyan diamond token
+      ctx.save();
+      ctx.translate(k.x, k.y);
+      ctx.rotate(Math.PI / 4 + (reduceMotion ? 0 : state.t * 1.5));
+      ctx.fillStyle = 'rgba(90,240,255,.25)';
+      ctx.fillRect(-r, -r, r * 2, r * 2);
+      ctx.strokeStyle = '#5af0ff';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(-r * 0.75, -r * 0.75, r * 1.5, r * 1.5);
+      ctx.restore();
+      ctx.fillStyle = '#e8fdff';
+      ctx.fillRect(k.x - 8, k.y - 1.5, 16, 3);
+      return;
+    }
     ctx.fillStyle = 'rgba(255,200,97,.25)';
     ctx.beginPath(); ctx.arc(k.x, k.y, r, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#ffc861';
     ctx.lineWidth = 2;
     ctx.stroke();
     drawMissile(k.x, k.y, false);
+  }
+
+  function drawBeam() {
+    const b = state.bird, y = b.y + 1, x0 = b.x + 32, x1 = state.beamEnd;
+    const w = 6 + Math.sin(state.t * 60) * 1.5;
+    ctx.fillStyle = 'rgba(90,240,255,.3)';
+    ctx.fillRect(x0, y - w, x1 - x0, w * 2);
+    ctx.fillStyle = '#5af0ff';
+    ctx.fillRect(x0, y - w / 3, x1 - x0, (w / 3) * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x0, y - 1, x1 - x0, 2);
+    if (x1 < W) {
+      ctx.fillStyle = 'rgba(255,240,180,.8)';
+      ctx.beginPath(); ctx.arc(x1, y, 7 + Math.random() * 4, 0, Math.PI * 2); ctx.fill();
+    }
   }
 
   function drawExplosion(x) {
@@ -611,17 +854,46 @@
     ctx.fillStyle = color;
     ctx.fillText(str, x, y);
   }
+  function arcade(str, x, y, size, color = '#fff4e6', align = 'left') {
+    ctx.font = `${size}px "Press Start 2P", "Courier New", monospace`;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(str, x, y);
+  }
 
   function panel(x, y, w, h) {
-    ctx.fillStyle = 'rgba(29,20,36,.85)';
+    ctx.fillStyle = 'rgba(29,20,36,.88)';
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 16); ctx.fill();
     ctx.strokeStyle = '#ffc861'; ctx.lineWidth = 3; ctx.stroke();
   }
 
-  // Boost button and meter, drawn on the canyon floor
-  const BOOST_BTN = { x: 196, y: 574, w: 148, h: 52 };
+  // Arcade-style table of this browser's best runs
+  function drawBoard(cx, y, rows) {
+    arcade('TOP SCORES', cx, y, 13, '#ffc861', 'center');
+    if (!scores.length) {
+      arcade('NO RUNS YET', cx, y + 34, 10, '#f6d7b8', 'center');
+      return;
+    }
+    for (let i = 0; i < Math.min(rows, scores.length); i++) {
+      const s = scores[i];
+      const ry = y + 30 + i * 22;
+      const mine = s === state.lastEntry;
+      const color = mine ? '#ff8a3a' : i === 0 ? '#ffe28a' : '#fff4e6';
+      arcade(`${String(i + 1).padStart(2, ' ')}.`, cx - 120, ry, 11, color);
+      arcade(s.n, cx - 66, ry, 11, color);
+      arcade(String(s.s).padStart(5, ' '), cx + 120, ry, 11, color, 'right');
+    }
+  }
+
+  // Ground buttons: Fire on the left, Boost on the right
+  function fireBtn() { return { x: 16, y: GROUND + 9, w: 170, h: 52 }; }
+  function boostBtn() { return { x: W - 186, y: GROUND + 9, w: 170, h: 52 }; }
+  function fsBtn() { return { x: W - 56, y: 14, w: 42, h: 42 }; }
+  function inside(r, x, y) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+
   function drawBoost() {
-    const { x, y, w, h } = BOOST_BTN;
+    const { x, y, w, h } = boostBtn();
     const ready = state.boosting || state.fuel > BOOST_MIN;
     ctx.fillStyle = 'rgba(29,20,36,.75)';
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 12); ctx.fill();
@@ -630,78 +902,110 @@
     ctx.strokeStyle = state.boosting ? '#ffe28a' : '#ffc861';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 12); ctx.stroke();
-    text('BOOST', x + w / 2, y + h / 2 + 1, 20);
+    text(FLAPPY ? 'BOOST' : 'BOOST  →', x + w / 2, y + h / 2 + 1, 20);
   }
 
-  // Fire button with one slot per missile, on the left of the canyon floor
-  const FIRE_BTN = { x: 16, y: 574, w: 148, h: 52 };
   function drawFire() {
-    const { x, y, w, h } = FIRE_BTN;
+    const { x, y, w, h } = fireBtn();
     const empty = state.ammo === 0;
     ctx.fillStyle = 'rgba(29,20,36,.75)';
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 12); ctx.fill();
     ctx.strokeStyle = state.emptyFlash > 0 ? '#ef6b3a' : empty ? '#8a6a5a' : '#ffc861';
     ctx.lineWidth = 2;
     ctx.stroke();
-    text('FIRE', x + 42, y + h / 2 + 1, 20, empty ? '#8a6a5a' : '#fff4e6');
+    text('FIRE', x + 46, y + h / 2 + 1, 20, empty ? '#8a6a5a' : '#fff4e6');
     for (let i = 0; i < MAX_AMMO; i++) {
       ctx.globalAlpha = i < state.ammo ? 1 : 0.25;
-      drawMissile(x + 96 + i * 30, y + h / 2, false);
+      drawMissile(x + 108 + i * 32, y + h / 2, false);
     }
     ctx.globalAlpha = 1;
   }
 
+  function drawFullscreenButton() {
+    if (!canFullscreen) return;
+    const { x, y, w, h } = fsBtn();
+    ctx.fillStyle = 'rgba(29,20,36,.6)';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.fill();
+    ctx.strokeStyle = '#fff4e6';
+    ctx.lineWidth = 2.5;
+    const m = 11, c = 8, on = !!document.fullscreenElement;
+    ctx.beginPath();
+    for (const [sx, sy] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+      const px = x + (sx ? w - m : m), py = y + (sy ? h - m : m);
+      const ix = sx ? -1 : 1, iy = sy ? -1 : 1;
+      if (on) { ctx.moveTo(px + ix * c, py); ctx.lineTo(px + ix * c, py + iy * c); ctx.lineTo(px, py + iy * c); }
+      else { ctx.moveTo(px, py + iy * c); ctx.lineTo(px, py); ctx.lineTo(px + ix * c, py); }
+    }
+    ctx.stroke();
+  }
+
   function drawHUD() {
     if (state.mode !== 'over') { drawBoost(); drawFire(); }
+    drawFullscreenButton();
     for (const p of state.popups) {
       ctx.globalAlpha = 1 - p.t / 0.9;
-      text(p.text, p.x, p.y, 18, '#ffc861', 'center', 'Nunito');
+      text(p.text, p.x, p.y, 18, p.text === 'LASER!' ? '#5af0ff' : '#ffc861', 'center', 'Nunito');
     }
     ctx.globalAlpha = 1;
+
     if (state.mode === 'play' || state.mode === 'paused') {
-      text(String(state.score), W / 2, 70, 54);
-      if (state.boosting) text('2× points', W / 2, 112, 18, '#ffc861', 'center', 'Nunito');
-      if (state.emptyFlash > 0) text('Out of missiles: grab a pickup', W / 2, 540, 16, '#ef6b3a', 'center', 'Nunito');
+      text(String(state.score), W / 2, 50, 50);
+      let y = 92;
+      if (state.boosting) { text('2× points', W / 2, y, 18, '#ffc861', 'center', 'Nunito'); y += 26; }
+      if (state.laser > 0) {
+        text('LASER', W / 2 - 56, y, 16, '#5af0ff', 'center', 'Nunito');
+        ctx.fillStyle = 'rgba(29,20,36,.7)';
+        ctx.fillRect(W / 2 - 24, y - 5, 90, 10);
+        ctx.fillStyle = '#5af0ff';
+        ctx.fillRect(W / 2 - 24, y - 5, 90 * state.laser / LASER_TIME, 10);
+      }
+      if (state.emptyFlash > 0) text('Out of missiles: grab a ◯ pickup', W / 2, GROUND - 24, 16, '#ef6b3a', 'center', 'Nunito');
     }
+
     if (state.mode === 'ready') {
-      text('Canyon', W / 2, 150, 52, '#ffc861');
-      text('Run', W / 2, 205, 52, '#ff8a3a');
+      const cx = Math.max(W * 0.6, 430);
+      text('Canyon Run', W / 2, 74, 58, '#ffc861');
       const pulse = reduceMotion ? 1 : 0.75 + 0.25 * Math.sin(state.t * 4);
       ctx.globalAlpha = pulse;
-      text(FLAPPY ? 'Tap to take off' : 'Press ↑ to take off', W / 2, 400, 22);
+      text(FLAPPY ? 'Tap to take off' : 'Press ↑ to take off', cx, 140, 24);
       ctx.globalAlpha = 1;
-      if (best > 0) text(`Best ${best}`, W / 2, 440, 18, '#f6d7b8', 'center', 'Nunito');
-      if (FLAPPY) {
-        text('Tap anywhere to flap up', W / 2, 475, 15, '#f6d7b8', 'center', 'Nunito');
-        text('Hold BOOST for double points', W / 2, 500, 15, '#ffc861', 'center', 'Nunito');
-        text('Tap FIRE to shoot · fly through ◯ to reload', W / 2, 525, 15, '#f6d7b8', 'center', 'Nunito');
-      } else {
-        text('↑ climb · ↓ dive · let go to hover', W / 2, 475, 15, '#f6d7b8', 'center', 'Nunito');
-        text('→ boost for double points', W / 2, 500, 15, '#ffc861', 'center', 'Nunito');
-        text('Space fires · fly through ◯ to reload', W / 2, 525, 15, '#f6d7b8', 'center', 'Nunito');
-      }
+      const lines = FLAPPY
+        ? ['Tap anywhere to flap · hold BOOST for 2× points', 'Tap FIRE for homing missiles · fly through ◯ to reload', 'Grab a ◆ laser token to switch the laser on']
+        : ['↑ climb · ↓ dive · let go to hover · → boost for 2× points', 'Space fires homing missiles · fly through ◯ to reload', 'Grab a ◆ laser token to switch the laser on · P pause'];
+      lines.forEach((l, i) => text(l, cx, 176 + i * 24, 15, i === 2 ? '#5af0ff' : '#f6d7b8', 'center', 'Nunito'));
+      panel(cx - 170, 262, 340, 186);
+      drawBoard(cx, 286, 6);
     }
     if (state.mode === 'paused') {
-      text('Paused', W / 2, 280, 40);
-      text('Tap or P to resume', W / 2, 330, 18, '#f6d7b8', 'center', 'Nunito');
+      text('Paused', W / 2, 230, 40);
+      text(FLAPPY ? 'Tap to resume' : 'Press P or ↑ to resume', W / 2, 276, 18, '#f6d7b8', 'center', 'Nunito');
     }
-    if (state.mode === 'over') {
-      panel(50, 190, W - 100, 210);
-      text('Game over', W / 2, 228, 34, '#ef6b3a');
-      text('Score', W / 2 - 64, 280, 16, '#f6d7b8', 'center', 'Nunito');
-      text('Best', W / 2 + 64, 280, 16, '#f6d7b8', 'center', 'Nunito');
-      text(String(state.score), W / 2 - 64, 318, 40);
-      text(String(best), W / 2 + 64, 318, 40, '#ffc861');
-      if (state.newBest) text('New best!', W / 2, 362, 18, '#ffc861');
-      if (state.t - state.overAt > 0.5) text(FLAPPY ? 'Tap to fly again' : 'Press ↑ to fly again', W / 2, 440, 20);
+    if (state.mode === 'over' && !state.entering) {
+      const px = W / 2 - 300;
+      panel(px, 60, 600, 360);
+      text('Game over', W / 2, 98, 34, '#ef6b3a');
+      const lx = W / 2 - 160;
+      text('Score', lx, 150, 16, '#f6d7b8', 'center', 'Nunito');
+      text(String(state.score), lx, 188, 44);
+      text('Best', lx - 60, 244, 15, '#f6d7b8', 'center', 'Nunito');
+      text(String(best), lx - 60, 274, 30, '#ffc861');
+      text('Jets down', lx + 60, 244, 15, '#f6d7b8', 'center', 'Nunito');
+      text(String(state.kills), lx + 60, 274, 30, '#ff8a3a');
+      if (state.newBest) text('New best!', lx, 322, 18, '#ffc861');
+      drawBoard(W / 2 + 140, 140, 10);
+      if (state.t - state.overAt > 0.5) text(FLAPPY ? 'Tap to fly again' : 'Press ↑ to fly again', W / 2, 446, 20);
+    }
+    if (state.mode === 'over' && state.entering) {
+      ctx.fillStyle = 'rgba(20,15,31,.5)';
+      ctx.fillRect(0, 0, W, H);
     }
   }
 
   function draw() {
     drawSky();
     for (const p of state.peaks) {
-      drawSpire(p, p.top, -10, 0);
-      drawSpire(p, p.top + GAP, GROUND + 10, SEGMENTS * 2 + 2);
+      drawSpire(p, p.top0, p.top, -10, 0);
+      drawSpire(p, p.bot0, p.bot, GROUND + 10, SEGMENTS * 2 + 2);
     }
     for (const k of state.pickups) drawPickup(k);
     drawGround();
@@ -709,7 +1013,7 @@
       // speed streaks
       ctx.strokeStyle = 'rgba(255,244,230,.35)';
       ctx.lineWidth = 2;
-      for (let i = 0; i < 9; i++) {
+      for (let i = 0; i < 14; i++) {
         const y = (i * 71 + 13) % (GROUND - 20);
         const x = W + 40 - ((state.dist * 1.5 + i * 97) % (W + 80));
         ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 46, y); ctx.stroke();
@@ -720,7 +1024,9 @@
     }
     for (const e of new Set(state.missiles.map(m => m.target).filter(e => e && !e.dead))) drawLock(e);
     for (const m of state.missiles) drawMissile(m.x, m.y, true, Math.atan2(m.vy, m.vx));
+    if (state.laser > 0 && state.mode === 'play') drawBeam();
     if (state.mode !== 'over' || state.t - state.overAt < 0.15) drawJet();
+    for (const d of state.debris) { ctx.fillStyle = d.c; ctx.fillRect(d.x, d.y, d.s, d.s); }
     for (const x of state.explosions) drawExplosion(x);
     drawHUD();
     if (state.flash > 0) {
@@ -734,6 +1040,7 @@
   function frame(now) {
     const dt = Math.min(0.033, (now - last) / 1000);
     last = now;
+    if (portraitPhone.matches && state.mode === 'play') state.mode = 'paused';
     update(dt);
     draw();
     requestAnimationFrame(frame);
@@ -744,23 +1051,24 @@
   const FIRE_KEYS = ['Space', 'KeyF', 'Enter'];
   const DOWN_KEYS = ['ArrowDown', 'KeyS'];
   const BOOST_KEYS = ['ArrowRight', 'KeyD', 'ShiftLeft', 'ShiftRight'];
+
   // Each finger remembers what it is holding, so a thumb can keep Boost held while the other taps
   const held = new Map();
-  stage.addEventListener('pointerdown', (e) => {
+  canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    stage.focus();
-    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
-    // Canyon floor: Fire on the left, Boost on the right.
-    // Above it: flappy mode flaps; hover mode climbs in the top part and dives lower down.
-    const r = stage.getBoundingClientRect();
-    const ly = (e.clientY - r.top) / r.height * H;
+    canvas.focus();
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+    const r = canvas.getBoundingClientRect();
     const lx = (e.clientX - r.left) / r.width * W;
+    const ly = (e.clientY - r.top) / r.height * H;
+    if (canFullscreen && inside(fsBtn(), lx, ly)) { toggleFullscreen(); return; }
     if (ly > GROUND) {
       if (lx < W / 2) fire();
       else { press('boost'); held.set(e.pointerId, 'boost'); }
     } else if (FLAPPY) {
       flap();
     } else {
+      // mouse in hover mode: hold the top part to climb, lower down to dive
       const dir = ly > H * 0.6 ? 'down' : 'up';
       press(dir);
       held.set(e.pointerId, dir);
@@ -770,15 +1078,18 @@
     const action = held.get(e.pointerId);
     if (action) { input[action] = false; held.delete(e.pointerId); }
   };
-  stage.addEventListener('pointerup', lift);
-  stage.addEventListener('pointercancel', lift);
+  canvas.addEventListener('pointerup', lift);
+  canvas.addEventListener('pointercancel', lift);
   window.addEventListener('blur', () => { release(); held.clear(); });
+
   window.addEventListener('keyup', (e) => {
+    if (e.target === iniInput) return;
     if (UP_KEYS.includes(e.code)) input.up = false;
     if (DOWN_KEYS.includes(e.code)) input.down = false;
     if (BOOST_KEYS.includes(e.code)) input.boost = false;
   });
   window.addEventListener('keydown', (e) => {
+    if (e.target === iniInput) return; // typing initials
     if (UP_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) FLAPPY ? flap() : press('up'); }
     if (DOWN_KEYS.includes(e.code) && !FLAPPY) { e.preventDefault(); if (!e.repeat) press('down'); }
     if (BOOST_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('boost'); }
@@ -792,7 +1103,9 @@
     if (document.hidden && state.mode === 'play') state.mode = 'paused';
   });
 
+  resize();
   reset();
+  canvas.focus();
   requestAnimationFrame(frame);
 })();
 </script>

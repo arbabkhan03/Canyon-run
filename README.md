@@ -1,26 +1,28 @@
 # Canyon Run
 
-A small browser game: fly a fighter jet through a sunset canyon, threading the gaps between rocky peaks and overhangs. Each gap you clear scores a point, or two while you boost. Enemy jets fly straight at you: dodge them or shoot them down for 3 points. Missiles lock on to the nearest incoming jet and steer toward it. You carry up to 2 and reload by flying through missile pickups in the gaps.
+A full-screen arcade game: fly a fighter jet through a sunset canyon, threading the gaps between rocky peaks and overhangs while enemy jets fly straight at you.
+
+- Each gap you clear scores a point, or two while you boost.
+- Shoot down an enemy jet for 3 points. Your missiles lock on to the nearest incoming jet and steer toward it.
+- A missile that hits the canyon blows the top off that rock, opening up the gap.
+- You carry up to 2 missiles. Fly through a gold ◯ ring to reload one.
+- Fly through a cyan ◆ laser token and a laser beam switches on for 5 seconds. It downs any jet in its path and melts the rock it touches.
+- Make the top 10 and you enter your initials on your personal scoreboard, kept in your browser.
 
 ## Play
 
-Open `index.html` in any modern browser. There is nothing to install or build.
+Open `index.html` in any modern browser, or play it at https://arbabkhan03.github.io/Canyon-run/. There is nothing to install or build.
 
 ## Controls
 
-| Action | Keyboard | Touch |
+| Action | Laptop / keyboard | Phone (landscape) |
 | --- | --- | --- |
-| Climb | Hold ↑ (or W) | Hold the top of the screen |
-| Dive | Hold ↓ (or S) | Hold the lower part of the screen |
+| Climb | Hold ↑ (or W) | Tap anywhere to flap |
+| Dive | Hold ↓ (or S) | Stop tapping and the jet falls |
+| Hover | Let go | — |
 | Boost (2× points) | Hold → (or D / Shift) | Hold the Boost button |
 | Fire missile | Space (or F / Enter) | Tap the Fire button |
-| Hover | Let go | Let go |
 | Pause | P or Esc | — |
+| Full screen | The ⛶ button, top right | The ⛶ button, top right |
 
-Your best score is saved in your browser.
-
-## On phones
-
-Touch screens get Flappy Bird-style controls: tap anywhere to flap up, and the jet falls when you stop. The **FIRE** and **BOOST** buttons sit on the canyon floor, and you can hold Boost with one thumb while tapping with the other.
-
-To try the phone controls on a computer, add `#flappy` to the link (Space still fires, ↑ flaps). `#hover` forces the computer controls on a phone.
+Phones play in landscape; hold the phone upright and the game pauses and asks you to turn it. To try the phone controls on a computer, add `#flappy` to the link. `#hover` forces the keyboard controls on a phone.
