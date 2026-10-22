@@ -388,7 +388,8 @@
 
   function openInitials() {
     state.entering = true;
-    iniScore.textContent = `${state.score} POINTS · ${state.kills} JETS DOWN`;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 'S'}`;
+    iniScore.textContent = `${plural(state.score, 'POINT')} · ${plural(state.kills, 'JET')} DOWN`;
     iniInput.value = lastInitials;
     form.hidden = false;
     setTimeout(() => { iniInput.focus(); iniInput.select(); }, 350);
