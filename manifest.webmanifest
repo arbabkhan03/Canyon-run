@@ -1,0 +1,9 @@
+{
+  "name": "Canyon Run",
+  "short_name": "Canyon Run",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#140f1f",
+  "theme_color": "#140f1f"
+}

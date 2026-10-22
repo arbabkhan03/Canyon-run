@@ -4,7 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#140f1f">
-<style>body { margin: 0; } [hidden] { display: none !important; }</style>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Canyon Run">
+<link rel="manifest" href="manifest.webmanifest">
+<style>html, body { margin: 0; background: #140f1f; } [hidden] { display: none !important; }</style>
 <title>Canyon Run</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Nunito:wght@600;800&family=Press+Start+2P&display=swap">
@@ -31,17 +36,23 @@
     font-family: var(--font-body);
     overflow: hidden;
   }
+  /* The game runs edge to edge, under the notch and home bar. The canvas keeps its
+     controls clear of them using the insets read from #safe. */
   #stage {
     position: fixed;
     inset: 0;
-    box-sizing: border-box;
-    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
     touch-action: none;
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
   }
   #frame { width: 100%; height: 100%; display: grid; place-items: center; }
+  #safe {
+    position: fixed;
+    visibility: hidden;
+    pointer-events: none;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
   #game { display: block; cursor: pointer; }
   #game:focus { outline: none; }
   #game:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
@@ -120,6 +131,7 @@
 </head>
 <body>
 
+<div id="safe" aria-hidden="true"></div>
 <div id="stage">
   <div id="frame">
     <canvas id="game" tabindex="0" role="application" aria-label="Canyon Run game. Hold the up arrow to climb, the down arrow to dive, the right arrow to boost, space to fire a missile."></canvas>
@@ -173,14 +185,12 @@
   const LASER_CHANCE = 0.12;       // chance a new gap holds a laser token instead
   const LASER_TIME = 5;            // seconds the laser stays on
   const LASER_CUT = 240;           // rock the laser melts per second, px
-  const FLAP = -410;               // flappy mode: upward kick per tap, px/s
-  const FLAPPY_GRAVITY = 1300;     // flappy mode: fall acceleration, px/s²
   const MAX_SCORES = 10;           // rows on the personal scoreboard
 
-  // Touch screens get flappy controls (tap to flap, the jet falls otherwise);
-  // keyboards get hover controls. #flappy or #hover on the link forces one.
-  const FLAPPY = location.hash === '#flappy' ||
-    (location.hash !== '#hover' && matchMedia('(pointer: coarse)').matches);
+  // Touch screens get the keyboard's hover controls on screen: a slider to climb and dive,
+  // plus Fire and Boost buttons. #touch on the link shows them on a computer too.
+  const TOUCH = location.hash === '#touch' || matchMedia('(pointer: coarse)').matches;
+  const SAFE = { l: 0, r: 0, t: 0, b: 0 }; // notch and home-bar insets, in game units
   const portraitPhone = matchMedia('(pointer: coarse) and (orientation: portrait)');
 
   const canvas = document.getElementById('game');
@@ -245,11 +255,19 @@
     lastEntry: null,
   };
 
+  // The game draws edge to edge, under the notch; controls stay inside the safe area
+  const safeProbe = document.getElementById('safe');
   function resize() {
     const r = frameEl.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    W = Math.round(H * Math.min(2.2, Math.max(4 / 3, r.width / r.height)));
+    W = Math.round(H * Math.min(2.6, Math.max(4 / 3, r.width / r.height)));
     const scale = Math.min(r.width / W, r.height / H);
+    const cs = getComputedStyle(safeProbe);
+    SAFE.l = parseFloat(cs.paddingLeft) / scale || 0;
+    SAFE.r = parseFloat(cs.paddingRight) / scale || 0;
+    SAFE.t = parseFloat(cs.paddingTop) / scale || 0;
+    SAFE.b = parseFloat(cs.paddingBottom) / scale || 0;
+    state.bird.x = TOUCH ? Math.max(PLAYER_X + 40, SAFE.l + 190) : PLAYER_X;
     canvas.style.width = `${W * scale}px`;
     canvas.style.height = `${H * scale}px`;
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -334,7 +352,7 @@
   }
 
   // ---------- Actions ----------
-  const input = { up: false, down: false, boost: false };
+  const input = { up: false, down: false, boost: false, axis: 0 }; // axis: slider, -1 (climb) to 1 (dive)
   function press(dir) {
     if (state.mode === 'paused') state.mode = 'play';
     if (state.mode === 'over') {
@@ -344,16 +362,15 @@
     if (state.mode === 'ready') state.mode = 'play';
     input[dir] = true;
   }
-  function release() { input.up = false; input.down = false; input.boost = false; }
+  function release() { input.up = false; input.down = false; input.boost = false; input.axis = 0; }
 
-  function flap() {
+  function start() {
     press('up'); // starts, resumes or restarts the game
     input.up = false;
-    if (state.mode === 'play') state.bird.vy = FLAP;
   }
 
   function fire() {
-    if (state.mode !== 'play') { press('up'); input.up = false; return; } // start, resume or restart
+    if (state.mode !== 'play') { start(); return; }
     if (state.ammo <= 0) { state.emptyFlash = 0.8; return; }
     if (state.fireCooldown > 0) return;
     state.ammo--;
@@ -455,18 +472,12 @@
       return;
     }
 
-    if (FLAPPY) {
-      // Flappy: always falling, each tap kicks the jet up
-      b.vy = Math.min(b.vy + FLAPPY_GRAVITY * dt, 720);
-      b.y += b.vy * dt;
-      b.angle = Math.max(-0.4, Math.min(0.9, b.vy / 720));
-    } else {
-      // Hover: hold altitude unless climbing or diving, easing into the new speed
-      const target = input.up ? -CLIMB : input.down ? CLIMB : 0;
-      b.vy += (target - b.vy) * Math.min(1, dt * 8);
-      b.y += b.vy * dt;
-      b.angle = b.vy / 900;
-    }
+    // Hover: hold altitude unless climbing or diving, easing into the new speed.
+    // The slider gives a partial climb or dive the further it is pushed.
+    const target = input.axis ? input.axis * CLIMB : input.up ? -CLIMB : input.down ? CLIMB : 0;
+    b.vy += (target - b.vy) * Math.min(1, dt * 8);
+    b.y += b.vy * dt;
+    b.angle = b.vy / 900;
 
     // Boost: faster scrolling and double points; drains the meter, which refills otherwise
     state.boosting = input.boost && state.fuel > 0 && (state.boosting || state.fuel > BOOST_MIN);
@@ -722,7 +733,7 @@
   function drawJet() {
     const b = state.bird;
     // afterburner flickers, flares while climbing or boosting, out after a crash
-    const flare = state.mode === 'over' ? 0 : (state.boosting ? 2.6 : input.up || (FLAPPY && b.vy < -150) ? 1.6 : 1) * (0.8 + 0.2 * Math.sin(state.t * 50));
+    const flare = state.mode === 'over' ? 0 : (state.boosting ? 2.6 : input.up || input.axis < -0.3 ? 1.6 : 1) * (0.8 + 0.2 * Math.sin(state.t * 50));
     drawPlane(b.x, b.y, b.angle, false, PLAYER_COLORS, flare);
   }
 
@@ -887,11 +898,47 @@
     }
   }
 
-  // Ground buttons: Fire on the left, Boost on the right
-  function fireBtn() { return { x: 16, y: GROUND + 9, w: 170, h: 52 }; }
-  function boostBtn() { return { x: W - 186, y: GROUND + 9, w: 170, h: 52 }; }
-  function fsBtn() { return { x: W - 56, y: 14, w: 42, h: 42 }; }
+  // Buttons on the canyon floor. Keyboard: Fire left, Boost right.
+  // Touch: both on the right for the right thumb, since the left thumb has the slider.
+  function btnY() { return Math.min(GROUND + 9, H - SAFE.b - 58); }
+  function fireBtn() {
+    return TOUCH ? { x: W - SAFE.r - 372, y: btnY(), w: 170, h: 52 } : { x: 16, y: btnY(), w: 170, h: 52 };
+  }
+  function boostBtn() { return { x: W - SAFE.r - 186, y: btnY(), w: 170, h: 52 }; }
+  function fsBtn() { return { x: W - SAFE.r - 56, y: SAFE.t + 14, w: 42, h: 42 }; }
+  // The slider's track along the left edge
+  function sliderBox() { return { x: SAFE.l + 18, y: SAFE.t + 70, w: 64, h: GROUND - SAFE.t - 100 }; }
   function inside(r, x, y) { return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h; }
+
+  function drawSlider() {
+    if (!TOUCH) return;
+    const { x, y, w, h } = sliderBox();
+    const cx = x + w / 2, cy = y + h / 2, travel = h / 2 - w / 2;
+    ctx.fillStyle = 'rgba(29,20,36,.55)';
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, w / 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,200,97,.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // climb / dive arrows and the hover line
+    ctx.fillStyle = 'rgba(255,244,230,.7)';
+    ctx.beginPath(); ctx.moveTo(cx, y + 14); ctx.lineTo(cx - 9, y + 28); ctx.lineTo(cx + 9, y + 28); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx, y + h - 14); ctx.lineTo(cx - 9, y + h - 28); ctx.lineTo(cx + 9, y + h - 28); ctx.fill();
+    ctx.fillStyle = 'rgba(255,244,230,.3)';
+    ctx.fillRect(x + 12, cy - 1, w - 24, 2);
+    // thumb
+    const ty = cy + input.axis * travel;
+    ctx.fillStyle = input.axis ? '#ff8a3a' : '#ffc861';
+    ctx.beginPath(); ctx.arc(cx, ty, w / 2 - 6, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#1d1424';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+  function setAxis(ly) {
+    const { y, w, h } = sliderBox();
+    const travel = h / 2 - w / 2;
+    input.axis = Math.max(-1, Math.min(1, (ly - (y + h / 2)) / travel));
+    if (Math.abs(input.axis) < 0.08) input.axis = 0.0001; // dead zone: hover, but keep the slider "held"
+  }
 
   function drawBoost() {
     const { x, y, w, h } = boostBtn();
@@ -903,7 +950,7 @@
     ctx.strokeStyle = state.boosting ? '#ffe28a' : '#ffc861';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.roundRect(x, y, w, h, 12); ctx.stroke();
-    text(FLAPPY ? 'BOOST' : 'BOOST  →', x + w / 2, y + h / 2 + 1, 20);
+    text(TOUCH ? 'BOOST' : 'BOOST  →', x + w / 2, y + h / 2 + 1, 20);
   }
 
   function drawFire() {
@@ -941,7 +988,7 @@
   }
 
   function drawHUD() {
-    if (state.mode !== 'over') { drawBoost(); drawFire(); }
+    if (state.mode !== 'over') { drawBoost(); drawFire(); drawSlider(); }
     drawFullscreenButton();
     for (const p of state.popups) {
       ctx.globalAlpha = 1 - p.t / 0.9;
@@ -968,10 +1015,10 @@
       text('Canyon Run', W / 2, 74, 58, '#ffc861');
       const pulse = reduceMotion ? 1 : 0.75 + 0.25 * Math.sin(state.t * 4);
       ctx.globalAlpha = pulse;
-      text(FLAPPY ? 'Tap to take off' : 'Press ↑ to take off', cx, 140, 24);
+      text(TOUCH ? 'Tap to take off' : 'Press ↑ to take off', cx, 140, 24);
       ctx.globalAlpha = 1;
-      const lines = FLAPPY
-        ? ['Tap anywhere to flap · hold BOOST for 2× points', 'Tap FIRE for homing missiles · fly through ◯ to reload', 'Grab a ◆ laser token to switch the laser on']
+      const lines = TOUCH
+        ? ['Slide up to climb · down to dive · let go to hover', 'FIRE shoots homing missiles · BOOST for 2× points', 'Grab a ◆ laser token to switch the laser on']
         : ['↑ climb · ↓ dive · let go to hover · → boost for 2× points', 'Space fires homing missiles · fly through ◯ to reload', 'Grab a ◆ laser token to switch the laser on · P pause'];
       lines.forEach((l, i) => text(l, cx, 176 + i * 24, 15, i === 2 ? '#5af0ff' : '#f6d7b8', 'center', 'Nunito'));
       panel(cx - 170, 262, 340, 186);
@@ -979,7 +1026,7 @@
     }
     if (state.mode === 'paused') {
       text('Paused', W / 2, 230, 40);
-      text(FLAPPY ? 'Tap to resume' : 'Press P or ↑ to resume', W / 2, 276, 18, '#f6d7b8', 'center', 'Nunito');
+      text(TOUCH ? 'Tap to resume' :'Press P or ↑ to resume', W / 2, 276, 18, '#f6d7b8', 'center', 'Nunito');
     }
     if (state.mode === 'over' && !state.entering) {
       const px = W / 2 - 300;
@@ -994,7 +1041,7 @@
       text(String(state.kills), lx + 60, 274, 30, '#ff8a3a');
       if (state.newBest) text('New best!', lx, 322, 18, '#ffc861');
       drawBoard(W / 2 + 140, 140, 10);
-      if (state.t - state.overAt > 0.5) text(FLAPPY ? 'Tap to fly again' : 'Press ↑ to fly again', W / 2, 446, 20);
+      if (state.t - state.overAt > 0.5) text(TOUCH ? 'Tap to fly again' :'Press ↑ to fly again', W / 2, 446, 20);
     }
     if (state.mode === 'over' && state.entering) {
       ctx.fillStyle = 'rgba(20,15,31,.5)';
@@ -1053,31 +1100,39 @@
   const DOWN_KEYS = ['ArrowDown', 'KeyS'];
   const BOOST_KEYS = ['ArrowRight', 'KeyD', 'ShiftLeft', 'ShiftRight'];
 
-  // Each finger remembers what it is holding, so a thumb can keep Boost held while the other taps
+  // Each finger remembers what it is holding, so the left thumb can work the slider
+  // while the right thumb holds Boost or taps Fire
   const held = new Map();
+  function toGame(e) {
+    const r = canvas.getBoundingClientRect();
+    return [(e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H];
+  }
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     canvas.focus();
     try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
-    const r = canvas.getBoundingClientRect();
-    const lx = (e.clientX - r.left) / r.width * W;
-    const ly = (e.clientY - r.top) / r.height * H;
+    const [lx, ly] = toGame(e);
+    const slider = sliderBox();
     if (canFullscreen && inside(fsBtn(), lx, ly)) { toggleFullscreen(); return; }
-    if (ly > GROUND) {
-      if (lx < W / 2) fire();
-      else { press('boost'); held.set(e.pointerId, 'boost'); }
-    } else if (FLAPPY) {
-      flap();
-    } else {
-      // mouse in hover mode: hold the top part to climb, lower down to dive
-      const dir = ly > H * 0.6 ? 'down' : 'up';
-      press(dir);
-      held.set(e.pointerId, dir);
+    if (inside(fireBtn(), lx, ly)) { fire(); return; }
+    if (inside(boostBtn(), lx, ly)) { press('boost'); held.set(e.pointerId, 'boost'); return; }
+    if (TOUCH && lx < slider.x + slider.w + 40 && ly < GROUND) {
+      if (state.mode !== 'play') start();
+      if (state.mode === 'play') { setAxis(ly); held.set(e.pointerId, 'axis'); }
+      return;
     }
+    if (TOUCH) { start(); return; } // any other tap starts, resumes or restarts
+    // mouse: hold the top part to climb, lower down to dive
+    const dir = ly > H * 0.6 ? 'down' : 'up';
+    press(dir);
+    held.set(e.pointerId, dir);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (held.get(e.pointerId) === 'axis') setAxis(toGame(e)[1]);
   });
   const lift = (e) => {
     const action = held.get(e.pointerId);
-    if (action) { input[action] = false; held.delete(e.pointerId); }
+    if (action) { input[action] = action === 'axis' ? 0 : false; held.delete(e.pointerId); }
   };
   canvas.addEventListener('pointerup', lift);
   canvas.addEventListener('pointercancel', lift);
@@ -1091,8 +1146,8 @@
   });
   window.addEventListener('keydown', (e) => {
     if (e.target === iniInput) return; // typing initials
-    if (UP_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) FLAPPY ? flap() : press('up'); }
-    if (DOWN_KEYS.includes(e.code) && !FLAPPY) { e.preventDefault(); if (!e.repeat) press('down'); }
+    if (UP_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('up'); }
+    if (DOWN_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('down'); }
     if (BOOST_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) press('boost'); }
     if (FIRE_KEYS.includes(e.code)) { e.preventDefault(); if (!e.repeat) fire(); }
     if (e.code === 'KeyP' || e.code === 'Escape') {
